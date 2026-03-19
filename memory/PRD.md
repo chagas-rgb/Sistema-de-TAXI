@@ -64,14 +64,31 @@ Build a taxi request web app for 'ARC Transporte' with:
 - Sound notification for new requests
 - Mobile-responsive design
 
+**Update 2: Tracking & Enhanced Cancellation**
+- **Acompanhamento (Tracking) page** at /acompanhamento - no password needed
+- Real-time SSE updates on tracking page
+- Shows all active requests (Aguardando + Confirmado)
+- **Cancel with reason** - dropdown with 4 options:
+  - Passageiro saiu mais cedo
+  - Não é mais necessário
+  - Erro na solicitação
+  - Outro (with custom text input)
+- **cancellation_reason** stored in database
+- Admin dashboard shows **"Motivo do Cancelamento"** for cancelled requests
+- **Twilio SMS integration** ready (requires credentials):
+  - SMS sent when status = Confirmado
+  - SMS sent when status = Cancelado (includes reason)
+
 ## API Endpoints
 - GET /api/employees - List all employees (with phone)
 - GET /api/employees/search?matricula={id} - Search employee (with phone)
 - POST /api/requests - Create taxi request (with requester_name, passenger phones)
 - GET /api/requests - List all requests
+- GET /api/requests/active - List active requests (aguardando + confirmado)
 - GET /api/requests/{id} - Get request by ID
 - PUT /api/requests/{id}/status - Update status
-- DELETE /api/requests/{id} - Cancel request
+- DELETE /api/requests/{id} - Cancel request (legacy)
+- POST /api/requests/{id}/cancel - Cancel with reason
 - POST /api/admin/verify - Verify admin password
 - GET /api/requests/stream/events - SSE endpoint
 
