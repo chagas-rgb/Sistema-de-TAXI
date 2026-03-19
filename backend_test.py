@@ -71,6 +71,13 @@ class ARCTransporteAPITester:
             print(f"   Found {len(employees)} employees")
             if len(employees) >= 5:
                 print("✅ Has required 5+ sample employees")
+                # Check if employees have phone field
+                first_employee = employees[0] if employees else {}
+                if 'phone' in first_employee:
+                    print("✅ Employees have phone field")
+                    print(f"   Sample phone: {first_employee['phone']}")
+                else:
+                    print("❌ Employees missing phone field")
             else:
                 print(f"⚠️  Only {len(employees)} employees found, expected 5+")
         
@@ -84,6 +91,11 @@ class ARCTransporteAPITester:
         
         if success and employee.get('full_name') == 'João Silva':
             print("✅ João Silva found correctly")
+            # Check if employee has phone number
+            if employee.get('phone') == '(11) 99999-1001':
+                print("✅ João Silva has correct phone: (11) 99999-1001")
+            else:
+                print(f"❌ João Silva phone mismatch: {employee.get('phone')}")
         elif success:
             print(f"⚠️  Found different employee: {employee.get('full_name')}")
             
@@ -106,14 +118,19 @@ class ARCTransporteAPITester:
         
         # Test: Create new taxi request
         request_data = {
+            "requester_name": "Maria Silva - Coordenadora",  # Test requester_name field
             "main_passenger": {
                 "matricula": "101",
-                "full_name": "João Silva"
+                "full_name": "João Silva",
+                "address": "Rua A, 123 - Centro",
+                "phone": "(11) 99999-1001"
             },
             "additional_passengers": [
                 {
                     "matricula": "102", 
-                    "full_name": "Maria Santos"
+                    "full_name": "Maria Santos",
+                    "address": "Av. Brasil, 456 - Jardim",
+                    "phone": "(11) 99999-1002"
                 }
             ],
             "destination_address": "Rua do Destino, 123 - Centro"
@@ -132,6 +149,19 @@ class ARCTransporteAPITester:
             request_id = created_request['id']
             print(f"✅ Request created with ID: {request_id}")
             
+            # Check if requester_name is stored correctly
+            if created_request.get('requester_name') == 'Maria Silva - Coordenadora':
+                print("✅ Request has correct requester_name: Maria Silva - Coordenadora")
+            else:
+                print(f"❌ Request requester_name mismatch: {created_request.get('requester_name')}")
+            
+            # Verify passengers have phone numbers
+            main_passenger = created_request.get('main_passenger', {})
+            if main_passenger.get('phone'):
+                print(f"✅ Main passenger has phone: {main_passenger.get('phone')}")
+            else:
+                print("❌ Main passenger missing phone number")
+            
             # Verify the request has correct status
             if created_request.get('status') == 'aguardando':
                 print("✅ Request has correct initial status: aguardando")
@@ -148,6 +178,14 @@ class ARCTransporteAPITester:
         
         if success and isinstance(all_requests, list):
             print(f"✅ Found {len(all_requests)} total requests")
+            
+            # Check if requests have requester_name field
+            if all_requests:
+                sample_request = all_requests[0]
+                if 'requester_name' in sample_request:
+                    print(f"✅ Requests have requester_name field: {sample_request.get('requester_name')}")
+                else:
+                    print("❌ Requests missing requester_name field")
             
             # Find our created request
             if request_id:
@@ -285,6 +323,7 @@ class ARCTransporteAPITester:
         
         # Test: Create request with too many passengers (> 4)
         invalid_request_data = {
+            "requester_name": "Test Coordinator",  # Add required field
             "main_passenger": {"matricula": "101", "full_name": "João Silva"},
             "additional_passengers": [
                 {"matricula": "102", "full_name": "Maria Santos"},
@@ -309,6 +348,7 @@ class ARCTransporteAPITester:
         # Test: Update status with invalid status
         # First create a request to update
         valid_request = {
+            "requester_name": "Test Coordinator",  # Add required field
             "main_passenger": {"matricula": "101", "full_name": "João Silva"},
             "additional_passengers": [],
             "destination_address": "Test destination"

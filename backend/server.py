@@ -41,14 +41,18 @@ class Employee(BaseModel):
     matricula: str
     full_name: str
     default_address: str
+    phone: str
 
 class Passenger(BaseModel):
     matricula: str
     full_name: str
+    address: str = ""
+    phone: str = ""
 
 class TaxiRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    requester_name: str = ""  # Nome do Solicitante - optional for backward compatibility
     main_passenger: Passenger
     additional_passengers: List[Passenger] = []
     destination_address: str
@@ -57,6 +61,7 @@ class TaxiRequest(BaseModel):
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class TaxiRequestCreate(BaseModel):
+    requester_name: str  # Nome do Solicitante
     main_passenger: Passenger
     additional_passengers: List[Passenger] = []
     destination_address: str
@@ -70,11 +75,11 @@ class AdminVerify(BaseModel):
 # ==================== SAMPLE DATA ====================
 
 SAMPLE_EMPLOYEES = [
-    {"matricula": "101", "full_name": "João Silva", "default_address": "Rua A, 123 - Centro"},
-    {"matricula": "102", "full_name": "Maria Santos", "default_address": "Av. Brasil, 456 - Jardim"},
-    {"matricula": "103", "full_name": "Carlos Oliveira", "default_address": "Rua das Flores, 789 - Vila Nova"},
-    {"matricula": "104", "full_name": "Ana Costa", "default_address": "Praça Central, 321 - Centro"},
-    {"matricula": "105", "full_name": "Pedro Lima", "default_address": "Rua do Comércio, 555 - Industrial"},
+    {"matricula": "101", "full_name": "João Silva", "default_address": "Rua A, 123 - Centro", "phone": "(11) 99999-1001"},
+    {"matricula": "102", "full_name": "Maria Santos", "default_address": "Av. Brasil, 456 - Jardim", "phone": "(11) 99999-1002"},
+    {"matricula": "103", "full_name": "Carlos Oliveira", "default_address": "Rua das Flores, 789 - Vila Nova", "phone": "(11) 99999-1003"},
+    {"matricula": "104", "full_name": "Ana Costa", "default_address": "Praça Central, 321 - Centro", "phone": "(11) 99999-1004"},
+    {"matricula": "105", "full_name": "Pedro Lima", "default_address": "Rua do Comércio, 555 - Industrial", "phone": "(11) 99999-1005"},
 ]
 
 # ==================== STARTUP ====================
@@ -82,13 +87,19 @@ SAMPLE_EMPLOYEES = [
 @app.on_event("startup")
 async def startup_db():
     """Initialize database with sample employees"""
-    # Check if employees already exist
-    count = await db.employees.count_documents({})
-    if count == 0:
+    # Check if employees need phone field update
+    sample_employee = await db.employees.find_one({"matricula": "101"})
+    if sample_employee and "phone" not in sample_employee:
+        # Update existing employees with phone numbers
+        await db.employees.drop()
+        await db.employees.insert_many(SAMPLE_EMPLOYEES)
+        logger.info("Employees updated with phone numbers")
+    elif not sample_employee:
         await db.employees.insert_many(SAMPLE_EMPLOYEES)
         logger.info("Sample employees inserted into database")
     else:
-        logger.info(f"Employees collection already has {count} documents")
+        count = await db.employees.count_documents({})
+        logger.info(f"Employees collection already has {count} documents with phone")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
@@ -134,6 +145,7 @@ async def create_request(request_data: TaxiRequestCreate):
         raise HTTPException(status_code=400, detail="Máximo de 4 passageiros por táxi")
     
     request_obj = TaxiRequest(
+        requester_name=request_data.requester_name,
         main_passenger=request_data.main_passenger,
         additional_passengers=request_data.additional_passengers,
         destination_address=request_data.destination_address

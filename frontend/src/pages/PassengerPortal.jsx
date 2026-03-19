@@ -16,7 +16,9 @@ import {
   Users, 
   ArrowRight,
   Loader2,
-  Shield
+  Shield,
+  User,
+  Phone
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -26,10 +28,14 @@ export default function PassengerPortal() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   
+  // Requester name (Nome do Solicitante)
+  const [requesterName, setRequesterName] = useState("");
+  
   // Main passenger state
   const [mainMatricula, setMainMatricula] = useState("");
   const [mainName, setMainName] = useState("");
   const [mainAddress, setMainAddress] = useState("");
+  const [mainPhone, setMainPhone] = useState("");
   const [mainFound, setMainFound] = useState(false);
   
   // Additional passengers state
@@ -51,6 +57,7 @@ export default function PassengerPortal() {
       const response = await axios.get(`${API}/employees/search?matricula=${mainMatricula}`);
       setMainName(response.data.full_name);
       setMainAddress(response.data.default_address);
+      setMainPhone(response.data.phone || "");
       setMainFound(true);
       if (useDefaultAddress) {
         setDestination(response.data.default_address);
@@ -59,6 +66,7 @@ export default function PassengerPortal() {
     } catch (error) {
       setMainName("");
       setMainAddress("");
+      setMainPhone("");
       setMainFound(false);
       toast.error("Funcionário não encontrado");
     } finally {
@@ -80,13 +88,15 @@ export default function PassengerPortal() {
       updated[index] = {
         ...updated[index],
         full_name: response.data.full_name,
+        address: response.data.default_address,
+        phone: response.data.phone || "",
         found: true
       };
       setAdditionalPassengers(updated);
       toast.success("Passageiro encontrado!");
     } catch (error) {
       const updated = [...additionalPassengers];
-      updated[index] = { ...updated[index], full_name: "", found: false };
+      updated[index] = { ...updated[index], full_name: "", address: "", phone: "", found: false };
       setAdditionalPassengers(updated);
       toast.error("Funcionário não encontrado");
     }
@@ -98,7 +108,7 @@ export default function PassengerPortal() {
       toast.error("Máximo de 4 passageiros por táxi");
       return;
     }
-    setAdditionalPassengers([...additionalPassengers, { matricula: "", full_name: "", found: false }]);
+    setAdditionalPassengers([...additionalPassengers, { matricula: "", full_name: "", address: "", phone: "", found: false }]);
   };
 
   // Remove passenger
@@ -109,13 +119,18 @@ export default function PassengerPortal() {
   // Update passenger matricula
   const updatePassengerMatricula = (index, value) => {
     const updated = [...additionalPassengers];
-    updated[index] = { ...updated[index], matricula: value, found: false, full_name: "" };
+    updated[index] = { ...updated[index], matricula: value, found: false, full_name: "", address: "", phone: "" };
     setAdditionalPassengers(updated);
   };
 
   // Submit request
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    if (!requesterName.trim()) {
+      toast.error("Por favor, informe o nome do solicitante");
+      return;
+    }
     
     if (!mainFound) {
       toast.error("Por favor, busque o passageiro principal primeiro");
@@ -137,13 +152,18 @@ export default function PassengerPortal() {
     setIsSubmitting(true);
     try {
       const requestData = {
+        requester_name: requesterName,
         main_passenger: {
           matricula: mainMatricula,
-          full_name: mainName
+          full_name: mainName,
+          address: mainAddress,
+          phone: mainPhone
         },
         additional_passengers: additionalPassengers.map(p => ({
           matricula: p.matricula,
-          full_name: p.full_name
+          full_name: p.full_name,
+          address: p.address,
+          phone: p.phone
         })),
         destination_address: destination
       };
@@ -201,6 +221,26 @@ export default function PassengerPortal() {
           
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Requester Name Section - FIRST */}
+              <div className="space-y-4 p-4 bg-[#1e3a5f]/5 rounded-xl border border-[#1e3a5f]/10">
+                <div className="flex items-center gap-2 mb-3">
+                  <User className="w-5 h-5 text-[#1e3a5f]" />
+                  <Label className="font-semibold text-[#1e3a5f]">Nome do Solicitante</Label>
+                  <Badge variant="destructive" className="text-xs">Obrigatório</Badge>
+                </div>
+                
+                <Input
+                  placeholder="Digite seu nome completo"
+                  value={requesterName}
+                  onChange={(e) => setRequesterName(e.target.value)}
+                  className="h-12 text-base"
+                  data-testid="requester-name-input"
+                />
+                <p className="text-xs text-slate-500">
+                  Informe quem está realizando esta solicitação
+                </p>
+              </div>
+
               {/* Main Passenger Section */}
               <div className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
                 <div className="flex items-center gap-2 mb-3">
@@ -224,6 +264,7 @@ export default function PassengerPortal() {
                           setMainFound(false);
                           setMainName("");
                           setMainAddress("");
+                          setMainPhone("");
                         }}
                         className="h-12 text-base"
                       />
@@ -244,19 +285,25 @@ export default function PassengerPortal() {
                   </div>
                   
                   {mainFound && (
-                    <div className="animate-slide-in p-3 bg-white rounded-lg border border-emerald-200">
-                      <div className="flex items-center gap-2 text-emerald-700">
+                    <div className="animate-slide-in p-4 bg-white rounded-lg border border-emerald-200">
+                      <div className="flex items-center gap-2 text-emerald-700 mb-3">
                         <Badge className="bg-emerald-100 text-emerald-700 border-0">
                           Encontrado
                         </Badge>
                       </div>
-                      <p className="mt-2 font-medium text-slate-800" data-testid="main-name-display">
+                      <p className="font-medium text-slate-800 text-lg" data-testid="main-name-display">
                         {mainName}
                       </p>
-                      <p className="text-sm text-slate-500 flex items-center gap-1 mt-1">
-                        <MapPin className="w-3 h-3" />
-                        {mainAddress}
-                      </p>
+                      <div className="mt-2 space-y-1">
+                        <p className="text-sm text-slate-600 flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-slate-400" />
+                          {mainAddress}
+                        </p>
+                        <p className="text-sm text-slate-600 flex items-center gap-2">
+                          <Phone className="w-4 h-4 text-slate-400" />
+                          <span data-testid="main-phone-display">{mainPhone}</span>
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -297,9 +344,9 @@ export default function PassengerPortal() {
                     {additionalPassengers.map((passenger, index) => (
                       <div 
                         key={index} 
-                        className="p-3 bg-white rounded-lg border border-slate-200 animate-slide-in"
+                        className="p-4 bg-white rounded-lg border border-slate-200 animate-slide-in"
                       >
-                        <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center justify-between mb-3">
                           <Label className="text-sm font-medium text-slate-700">
                             Passageiro {index + 2}
                           </Label>
@@ -315,7 +362,7 @@ export default function PassengerPortal() {
                           </Button>
                         </div>
                         
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 mb-2">
                           <Input
                             placeholder="Matrícula"
                             value={passenger.matricula}
@@ -334,10 +381,20 @@ export default function PassengerPortal() {
                         </div>
                         
                         {passenger.found && (
-                          <div className="mt-2 p-2 bg-emerald-50 rounded border border-emerald-100">
-                            <p className="text-sm font-medium text-emerald-800" data-testid={`passenger-${index}-name`}>
+                          <div className="mt-3 p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                            <p className="font-medium text-emerald-800" data-testid={`passenger-${index}-name`}>
                               {passenger.full_name}
                             </p>
+                            <div className="mt-1 space-y-1">
+                              <p className="text-xs text-emerald-700 flex items-center gap-1">
+                                <MapPin className="w-3 h-3" />
+                                {passenger.address}
+                              </p>
+                              <p className="text-xs text-emerald-700 flex items-center gap-1">
+                                <Phone className="w-3 h-3" />
+                                <span data-testid={`passenger-${index}-phone`}>{passenger.phone}</span>
+                              </p>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -385,7 +442,7 @@ export default function PassengerPortal() {
               {/* Submit Button */}
               <Button
                 type="submit"
-                disabled={isSubmitting || !mainFound}
+                disabled={isSubmitting || !mainFound || !requesterName.trim()}
                 className="w-full h-14 text-lg font-semibold btn-navy rounded-xl"
                 data-testid="submit-request-btn"
               >

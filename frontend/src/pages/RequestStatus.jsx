@@ -14,7 +14,9 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  Phone,
+  User
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -214,6 +216,21 @@ export default function RequestStatus() {
           </CardContent>
         </Card>
 
+        {/* Requester Info */}
+        <Card className="border-0 shadow-[0_4px_20px_rgba(30,58,95,0.1)] mb-6 animate-fade-in-up">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg font-['Manrope'] text-[#1e3a5f] flex items-center gap-2">
+              <User className="w-5 h-5" />
+              Solicitante
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="font-medium text-slate-800" data-testid="requester-name-display">
+              {request.requester_name}
+            </p>
+          </CardContent>
+        </Card>
+
         {/* Request Details */}
         <Card className="border-0 shadow-[0_4px_20px_rgba(30,58,95,0.1)] mb-6 animate-fade-in-up stagger-1">
           <CardHeader>
@@ -226,21 +243,35 @@ export default function RequestStatus() {
             {allPassengers.map((passenger, index) => (
               <div 
                 key={index}
-                className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"
+                className="p-4 bg-slate-50 rounded-lg"
               >
-                <div>
+                <div className="flex items-center justify-between mb-2">
                   <p className="font-medium text-slate-800" data-testid={`passenger-name-${index}`}>
                     {passenger.full_name}
                   </p>
-                  <p className="text-sm text-slate-500">
-                    Matrícula: {passenger.matricula}
-                  </p>
+                  {index === 0 && (
+                    <Badge variant="secondary" className="bg-[#1e3a5f]/10 text-[#1e3a5f]">
+                      Principal
+                    </Badge>
+                  )}
                 </div>
-                {index === 0 && (
-                  <Badge variant="secondary" className="bg-[#1e3a5f]/10 text-[#1e3a5f]">
-                    Principal
-                  </Badge>
-                )}
+                <div className="space-y-1 text-sm text-slate-600">
+                  <p className="flex items-center gap-2">
+                    <span className="text-slate-400">Matrícula:</span> {passenger.matricula}
+                  </p>
+                  {passenger.address && (
+                    <p className="flex items-center gap-2">
+                      <MapPin className="w-3 h-3 text-slate-400" />
+                      {passenger.address}
+                    </p>
+                  )}
+                  {passenger.phone && (
+                    <p className="flex items-center gap-2">
+                      <Phone className="w-3 h-3 text-slate-400" />
+                      <span data-testid={`passenger-phone-${index}`}>{passenger.phone}</span>
+                    </p>
+                  )}
+                </div>
               </div>
             ))}
           </CardContent>

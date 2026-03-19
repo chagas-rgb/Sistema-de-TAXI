@@ -20,7 +20,9 @@ import {
   AlertCircle,
   RefreshCw,
   LayoutDashboard,
-  Bell
+  Bell,
+  Phone,
+  User
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -399,11 +401,11 @@ export default function AdminDashboard() {
                   }`}
                   data-testid={`request-card-${request.id}`}
                 >
-                  <CardContent className="p-4">
-                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-                      {/* Request Info */}
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-3">
+                  <CardContent className="p-5">
+                    <div className="flex flex-col gap-4">
+                      {/* Header with Status and ID */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
                           <Badge className={`${statusConfig.className} text-xs`}>
                             <StatusIcon className="w-3 h-3 mr-1" />
                             {statusConfig.label}
@@ -413,67 +415,106 @@ export default function AdminDashboard() {
                           </span>
                         </div>
                         
-                        {/* Passengers */}
-                        <div className="mb-3">
-                          <div className="flex items-center gap-1 text-sm text-slate-600 mb-2">
-                            <Users className="w-4 h-4" />
-                            <span className="font-medium">
-                              {allPassengers.length} passageiro{allPassengers.length > 1 ? 's' : ''}
-                            </span>
-                          </div>
-                          <div className="space-y-1 pl-5">
-                            {allPassengers.map((p, idx) => (
-                              <div key={idx} className="text-sm">
+                        {/* Actions */}
+                        <div className="flex gap-2">
+                          {request.status === "aguardando" && (
+                            <Button
+                              onClick={() => updateStatus(request.id, "confirmado")}
+                              className="btn-navy text-sm"
+                              data-testid={`confirm-btn-${request.id}`}
+                            >
+                              <CheckCircle2 className="w-4 h-4 mr-1" />
+                              Confirmar Táxi
+                            </Button>
+                          )}
+                          
+                          {request.status === "confirmado" && (
+                            <Button
+                              onClick={() => updateStatus(request.id, "finalizado")}
+                              variant="outline"
+                              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                              data-testid={`finish-btn-${request.id}`}
+                            >
+                              <Flag className="w-4 h-4 mr-1" />
+                              Finalizar Corrida
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Requester (Solicitante) - AT THE TOP */}
+                      <div className="p-3 bg-[#1e3a5f]/5 rounded-lg border border-[#1e3a5f]/10">
+                        <div className="flex items-center gap-2 text-[#1e3a5f]">
+                          <User className="w-4 h-4" />
+                          <span className="text-xs font-semibold uppercase tracking-wide">Solicitante</span>
+                        </div>
+                        <p className="mt-1 font-medium text-slate-800" data-testid={`requester-${request.id}`}>
+                          {request.requester_name}
+                        </p>
+                      </div>
+                      
+                      {/* Passengers */}
+                      <div>
+                        <div className="flex items-center gap-2 text-sm text-slate-600 mb-3">
+                          <Users className="w-4 h-4" />
+                          <span className="font-semibold">
+                            {allPassengers.length} passageiro{allPassengers.length > 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <div className="space-y-3">
+                          {allPassengers.map((p, idx) => (
+                            <div key={idx} className="p-3 bg-slate-50 rounded-lg">
+                              <div className="flex items-center gap-2 mb-2">
                                 <span className="font-medium text-slate-800">{p.full_name}</span>
-                                <span className="text-slate-400 ml-2">({p.matricula})</span>
+                                <span className="text-slate-400 text-sm">({p.matricula})</span>
                                 {idx === 0 && (
-                                  <Badge variant="secondary" className="ml-2 text-xs py-0">
+                                  <Badge variant="secondary" className="text-xs py-0 bg-[#1e3a5f]/10 text-[#1e3a5f]">
                                     Principal
                                   </Badge>
                                 )}
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                        
-                        {/* Destination */}
-                        <div className="flex items-start gap-1 text-sm text-slate-600">
-                          <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                          <span>{request.destination_address}</span>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                                {p.address && (
+                                  <div className="flex items-center gap-2 text-slate-600">
+                                    <MapPin className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                                    <span className="truncate">{p.address}</span>
+                                  </div>
+                                )}
+                                {p.phone && (
+                                  <div className="flex items-center gap-2 text-slate-600">
+                                    <Phone className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                                    <a 
+                                      href={`tel:${p.phone}`}
+                                      className="text-[#1e3a5f] hover:underline font-medium"
+                                      data-testid={`phone-${request.id}-${idx}`}
+                                    >
+                                      {p.phone}
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
                       
-                      {/* Actions */}
-                      <div className="flex flex-col gap-2 md:min-w-[160px]">
-                        {request.status === "aguardando" && (
-                          <Button
-                            onClick={() => updateStatus(request.id, "confirmado")}
-                            className="btn-navy text-sm"
-                            data-testid={`confirm-btn-${request.id}`}
-                          >
-                            <CheckCircle2 className="w-4 h-4 mr-1" />
-                            Confirmar Táxi
-                          </Button>
-                        )}
-                        
-                        {request.status === "confirmado" && (
-                          <Button
-                            onClick={() => updateStatus(request.id, "finalizado")}
-                            variant="outline"
-                            className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                            data-testid={`finish-btn-${request.id}`}
-                          >
-                            <Flag className="w-4 h-4 mr-1" />
-                            Finalizar Corrida
-                          </Button>
-                        )}
-                        
-                        {(request.status === "finalizado" || request.status === "cancelado") && (
-                          <span className="text-xs text-slate-400 text-center">
-                            {new Date(request.updated_at).toLocaleString('pt-BR')}
-                          </span>
-                        )}
+                      {/* Destination */}
+                      <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                        <div className="flex items-center gap-2 text-emerald-700">
+                          <MapPin className="w-4 h-4" />
+                          <span className="text-xs font-semibold uppercase tracking-wide">Destino</span>
+                        </div>
+                        <p className="mt-1 font-medium text-emerald-800">
+                          {request.destination_address}
+                        </p>
                       </div>
+                      
+                      {/* Timestamp for completed requests */}
+                      {(request.status === "finalizado" || request.status === "cancelado") && (
+                        <p className="text-xs text-slate-400 text-right">
+                          Atualizado: {new Date(request.updated_at).toLocaleString('pt-BR')}
+                        </p>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
