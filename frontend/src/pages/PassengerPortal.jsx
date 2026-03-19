@@ -18,7 +18,8 @@ import {
   Loader2,
   Shield,
   User,
-  Phone
+  Phone,
+  Radio
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -194,16 +195,28 @@ export default function PassengerPortal() {
               <p className="text-xs text-white/70">Sistema de Táxi Corporativo</p>
             </div>
           </div>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            className="text-white/80 hover:text-white hover:bg-white/10"
-            onClick={() => navigate('/admin-control')}
-            data-testid="admin-link"
-          >
-            <Shield className="w-4 h-4 mr-1" />
-            Admin
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="ghost" 
+              size="sm"
+              className="text-white/80 hover:text-white hover:bg-white/10"
+              onClick={() => navigate('/acompanhamento')}
+              data-testid="tracking-link"
+            >
+              <Radio className="w-4 h-4 mr-1" />
+              Acompanhar
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm"
+              className="text-white/80 hover:text-white hover:bg-white/10"
+              onClick={() => navigate('/admin-control')}
+              data-testid="admin-link"
+            >
+              <Shield className="w-4 h-4 mr-1" />
+              Admin
+            </Button>
+          </div>
         </div>
       </header>
 

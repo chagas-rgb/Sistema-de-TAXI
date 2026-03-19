@@ -509,6 +509,19 @@ export default function AdminDashboard() {
                         </p>
                       </div>
                       
+                      {/* Cancellation Reason - show for cancelled requests */}
+                      {request.status === "cancelado" && request.cancellation_reason && (
+                        <div className="p-3 bg-red-50 rounded-lg border border-red-100">
+                          <div className="flex items-center gap-2 text-red-700">
+                            <AlertCircle className="w-4 h-4" />
+                            <span className="text-xs font-semibold uppercase tracking-wide">Motivo do Cancelamento</span>
+                          </div>
+                          <p className="mt-1 font-medium text-red-800" data-testid={`cancel-reason-${request.id}`}>
+                            {request.cancellation_reason}
+                          </p>
+                        </div>
+                      )}
+                      
                       {/* Timestamp for completed requests */}
                       {(request.status === "finalizado" || request.status === "cancelado") && (
                         <p className="text-xs text-slate-400 text-right">

@@ -34,6 +34,62 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ==================== TWILIO SMS SERVICE ====================
+
+# Twilio configuration (optional - will work without it)
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID')
+TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN')
+TWILIO_PHONE_NUMBER = os.environ.get('TWILIO_PHONE_NUMBER')
+
+twilio_client = None
+if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
+    try:
+        from twilio.rest import Client
+        twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        logger.info("Twilio SMS service initialized")
+    except Exception as e:
+        logger.warning(f"Twilio not available: {e}")
+
+async def send_sms_notification(phone: str, message: str):
+    """Send SMS notification via Twilio"""
+    if not twilio_client or not TWILIO_PHONE_NUMBER:
+        logger.info(f"SMS would be sent to {phone}: {message}")
+        return False
+    
+    try:
+        # Format phone number for Brazil if needed
+        formatted_phone = phone.replace("(", "").replace(")", "").replace(" ", "").replace("-", "")
+        if not formatted_phone.startswith("+"):
+            formatted_phone = f"+55{formatted_phone}"
+        
+        twilio_client.messages.create(
+            body=message,
+            from_=TWILIO_PHONE_NUMBER,
+            to=formatted_phone
+        )
+        logger.info(f"SMS sent to {formatted_phone}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send SMS: {e}")
+        return False
+
+async def notify_passengers_status_change(request_data: dict, new_status: str, cancellation_reason: str = None):
+    """Send SMS to all passengers when status changes"""
+    all_passengers = [request_data.get('main_passenger', {})] + request_data.get('additional_passengers', [])
+    
+    if new_status == "confirmado":
+        message = f"ARC Transporte: Seu táxi foi CONFIRMADO e está a caminho! Destino: {request_data.get('destination_address', 'N/A')}"
+    elif new_status == "cancelado":
+        reason_text = f" Motivo: {cancellation_reason}" if cancellation_reason else ""
+        message = f"ARC Transporte: Sua solicitação de táxi foi CANCELADA.{reason_text}"
+    else:
+        return
+    
+    for passenger in all_passengers:
+        phone = passenger.get('phone', '')
+        if phone:
+            await send_sms_notification(phone, message)
+
 # ==================== MODELS ====================
 
 class Employee(BaseModel):
@@ -52,11 +108,12 @@ class Passenger(BaseModel):
 class TaxiRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    requester_name: str = ""  # Nome do Solicitante - optional for backward compatibility
+    requester_name: str = ""  # Nome do Solicitante
     main_passenger: Passenger
     additional_passengers: List[Passenger] = []
     destination_address: str
     status: str = "aguardando"  # aguardando, confirmado, finalizado, cancelado
+    cancellation_reason: str = ""  # Reason for cancellation
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -68,6 +125,9 @@ class TaxiRequestCreate(BaseModel):
 
 class StatusUpdate(BaseModel):
     status: str
+
+class CancelRequest(BaseModel):
+    reason: str  # Cancellation reason
 
 class AdminVerify(BaseModel):
     password: str
@@ -136,7 +196,7 @@ async def list_employees():
     return employees
 
 # Taxi Request CRUD
-@api_router.post("/requests", response_model=TaxiRequest, status_code=201)
+@api_router.post("/requests", response_model=TaxiRequest)
 async def create_request(request_data: TaxiRequestCreate):
     """Create a new taxi request"""
     # Validate passenger count (max 4)
@@ -166,6 +226,13 @@ async def list_requests(status: Optional[str] = None):
     if status:
         query["status"] = status
     
+    requests = await db.taxi_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return requests
+
+@api_router.get("/requests/active", response_model=List[TaxiRequest])
+async def list_active_requests():
+    """List all active taxi requests (aguardando or confirmado)"""
+    query = {"status": {"$in": ["aguardando", "confirmado"]}}
     requests = await db.taxi_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
     return requests
 
@@ -199,6 +266,10 @@ async def update_request_status(request_id: str, status_update: StatusUpdate):
     # Remove _id before returning
     result.pop("_id", None)
     
+    # Send SMS notification for confirmado status
+    if status_update.status == "confirmado":
+        await notify_passengers_status_change(result, "confirmado")
+    
     # Notify SSE clients about status change
     await notify_clients("status_update", result)
     
@@ -206,7 +277,7 @@ async def update_request_status(request_id: str, status_update: StatusUpdate):
 
 @api_router.delete("/requests/{request_id}")
 async def cancel_request(request_id: str):
-    """Cancel a taxi request (only if status is aguardando)"""
+    """Cancel a taxi request (only if status is aguardando) - legacy endpoint"""
     request = await db.taxi_requests.find_one({"id": request_id})
     if not request:
         raise HTTPException(status_code=404, detail="Solicitação não encontrada")
@@ -228,6 +299,36 @@ async def cancel_request(request_id: str):
     await notify_clients("status_update", request)
     
     return {"message": "Solicitação cancelada com sucesso"}
+
+@api_router.post("/requests/{request_id}/cancel")
+async def cancel_request_with_reason(request_id: str, cancel_data: CancelRequest):
+    """Cancel a taxi request with a reason"""
+    request = await db.taxi_requests.find_one({"id": request_id})
+    if not request:
+        raise HTTPException(status_code=404, detail="Solicitação não encontrada")
+    
+    if request["status"] not in ["aguardando", "confirmado"]:
+        raise HTTPException(status_code=400, detail="Esta solicitação não pode ser cancelada")
+    
+    result = await db.taxi_requests.find_one_and_update(
+        {"id": request_id},
+        {"$set": {
+            "status": "cancelado",
+            "cancellation_reason": cancel_data.reason,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }},
+        return_document=True
+    )
+    
+    result.pop("_id", None)
+    
+    # Send SMS notification for cancellation
+    await notify_passengers_status_change(result, "cancelado", cancel_data.reason)
+    
+    # Notify SSE clients
+    await notify_clients("status_update", result)
+    
+    return result
 
 # Admin verification
 @api_router.post("/admin/verify")
