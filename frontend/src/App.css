@@ -1,34 +1,165 @@
-.App-logo {
-    height: 40vmin;
+/* ARC Transporte Custom Styles */
+
+/* Background pattern overlay */
+.arc-bg-pattern {
+    position: relative;
+    background-color: #f8fafc;
+}
+
+.arc-bg-pattern::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: url('https://images.unsplash.com/photo-1768330005082-948bb0f86016?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNTl8MHwxfHNlYXJjaHw0fHxhYnN0cmFjdCUyMGNpdHklMjBtYXAlMjBibHVlJTIwYWVzdGhldGljfGVufDB8fHx8MTc3MzkyNDc2OXww&ixlib=rb-4.1.0&q=85');
+    background-size: cover;
+    background-position: center;
+    opacity: 0.03;
     pointer-events: none;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
-}
-
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
+/* Navy button hover effect */
+.btn-navy {
+    background-color: #1e3a5f;
     color: white;
+    transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
 }
 
-.App-link {
-    color: #61dafb;
+.btn-navy:hover {
+    background-color: #2d4f7c;
+    box-shadow: 0 4px 12px rgba(30, 58, 95, 0.25);
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
+.btn-navy:active {
+    transform: scale(0.98);
+}
+
+/* Card hover effect */
+.card-hover {
+    transition: box-shadow 0.3s ease, transform 0.2s ease;
+}
+
+.card-hover:hover {
+    box-shadow: 0 8px 24px rgba(30, 58, 95, 0.12);
+    transform: translateY(-2px);
+}
+
+/* Input focus styles */
+.input-arc:focus {
+    border-color: #1e3a5f;
+    box-shadow: 0 0 0 3px rgba(30, 58, 95, 0.1);
+}
+
+/* Mobile-first responsive utilities */
+@media (max-width: 640px) {
+    .mobile-full {
+        width: 100%;
+        max-width: 100%;
     }
-    to {
-        transform: rotate(360deg);
+    
+    .mobile-stack {
+        flex-direction: column;
+    }
+    
+    .mobile-padding {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+}
+
+/* Admin dashboard specific styles */
+.admin-sidebar {
+    background: linear-gradient(180deg, #1e3a5f 0%, #162a45 100%);
+    min-height: 100vh;
+}
+
+.admin-nav-item {
+    transition: background-color 0.2s ease, padding-left 0.2s ease;
+}
+
+.admin-nav-item:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    padding-left: 1.25rem;
+}
+
+.admin-nav-item.active {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-left: 3px solid #0ea5e9;
+}
+
+/* Request card in admin */
+.request-card {
+    border-left: 4px solid transparent;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.request-card.status-aguardando {
+    border-left-color: #f59e0b;
+}
+
+.request-card.status-confirmado {
+    border-left-color: #10b981;
+}
+
+.request-card.status-finalizado {
+    border-left-color: #64748b;
+}
+
+/* Pulse animation for new requests */
+.new-request-pulse {
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 0 10px rgba(245, 158, 11, 0);
+    }
+}
+
+/* Loading skeleton */
+.skeleton {
+    background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+/* Status live indicator */
+.live-indicator {
+    position: relative;
+}
+
+.live-indicator::before {
+    content: '';
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    background-color: #10b981;
+    border-radius: 50%;
+    top: 50%;
+    left: -16px;
+    transform: translateY(-50%);
+    animation: blink 1.5s ease-in-out infinite;
+}
+
+@keyframes blink {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.4;
     }
 }
