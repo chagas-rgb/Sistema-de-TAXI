@@ -7,6 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { 
   Car, 
   Lock,
@@ -22,7 +30,10 @@ import {
   LayoutDashboard,
   Bell,
   Phone,
-  User
+  User,
+  Upload,
+  FileSpreadsheet,
+  Download
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -64,6 +75,12 @@ export default function AdminDashboard() {
   const [filter, setFilter] = useState("active"); // active, all
   const audioRef = useRef(null);
   const previousRequestCount = useRef(0);
+  
+  // CSV Upload state
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [replaceAll, setReplaceAll] = useState(false);
+  const fileInputRef = useRef(null);
 
   // Fetch requests
   const fetchRequests = useCallback(async () => {
@@ -169,6 +186,50 @@ export default function AdminDashboard() {
     setIsAuthenticated(false);
     setPassword("");
     setRequests([]);
+  };
+
+  // CSV Upload handler
+  const handleCSVUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      const response = await axios.post(
+        `${API}/employees/upload-csv?replace=${replaceAll}`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+      
+      toast.success(response.data.message);
+      if (response.data.errors && response.data.errors.length > 0) {
+        toast.warning(`Avisos: ${response.data.errors.join(', ')}`);
+      }
+      setUploadModalOpen(false);
+      setReplaceAll(false);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao importar CSV");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Download CSV template
+  const downloadTemplate = () => {
+    const template = "matricula,name,address,phone\n101,João Silva,Rua A 123 - Centro,(11) 99999-1001\n102,Maria Santos,Av. Brasil 456,(11) 99999-1002";
+    const blob = new Blob([template], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'funcionarios_template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   // Filter requests
@@ -281,6 +342,16 @@ export default function AdminDashboard() {
           </div>
           
           <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setUploadModalOpen(true)}
+              className="text-white/80 hover:text-white hover:bg-white/10"
+              data-testid="upload-csv-btn"
+            >
+              <Upload className="w-4 h-4 mr-1" />
+              Importar CSV
+            </Button>
             <Button
               variant="ghost"
               size="sm"
@@ -536,6 +607,91 @@ export default function AdminDashboard() {
           </div>
         )}
       </main>
+
+      {/* CSV Upload Modal */}
+      <Dialog open={uploadModalOpen} onOpenChange={setUploadModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#1e3a5f] font-['Manrope'] flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5" />
+              Importar Funcionários
+            </DialogTitle>
+            <DialogDescription>
+              Faça upload de um arquivo CSV com os dados dos funcionários.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {/* Template download */}
+            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+              <p className="text-sm text-slate-600 mb-2">
+                O CSV deve ter as colunas: <strong>matricula</strong>, <strong>name</strong>, <strong>address</strong>, <strong>phone</strong>
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={downloadTemplate}
+                className="text-[#1e3a5f]"
+              >
+                <Download className="w-4 h-4 mr-1" />
+                Baixar Template
+              </Button>
+            </div>
+
+            {/* Replace option */}
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="replaceAll"
+                checked={replaceAll}
+                onChange={(e) => setReplaceAll(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-300 text-[#1e3a5f] focus:ring-[#1e3a5f]"
+              />
+              <Label htmlFor="replaceAll" className="text-sm text-slate-600 cursor-pointer">
+                Substituir todos os funcionários existentes
+              </Label>
+            </div>
+            
+            {/* Hidden file input */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept=".csv"
+              onChange={handleCSVUpload}
+              className="hidden"
+              data-testid="csv-file-input"
+            />
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setUploadModalOpen(false)}
+              disabled={uploading}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="btn-navy"
+              data-testid="select-csv-btn"
+            >
+              {uploading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Importando...
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4 mr-2" />
+                  Selecionar Arquivo CSV
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

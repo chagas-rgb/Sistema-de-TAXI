@@ -2,6 +2,8 @@ import requests
 import sys
 import json
 import uuid
+import io
+import csv
 from datetime import datetime
 
 class TaxiAppAPITester:
@@ -253,6 +255,167 @@ class TaxiAppAPITester:
             
         return True
 
+    def create_test_csv(self, content):
+        """Create a test CSV file in memory"""
+        csv_buffer = io.StringIO()
+        csv_writer = csv.writer(csv_buffer)
+        for row in content:
+            csv_writer.writerow(row)
+        csv_content = csv_buffer.getvalue().encode('utf-8')
+        return csv_content
+
+    def run_file_test(self, name, method, endpoint, expected_status, files=None, data=None):
+        """Run a single API test with file upload"""
+        url = f"{self.base_url}/{endpoint.lstrip('/')}"
+
+        self.tests_run += 1
+        print(f"\n🔍 Testing {name}...")
+        print(f"   URL: {url}")
+        
+        try:
+            if method == 'POST':
+                response = requests.post(url, files=files, data=data)
+
+            success = response.status_code == expected_status
+            if success:
+                self.tests_passed += 1
+                print(f"✅ PASSED - Status: {response.status_code}")
+                try:
+                    response_json = response.json()
+                    if 'imported_count' in response_json:
+                        print(f"   Imported {response_json['imported_count']} employees")
+                    if 'message' in response_json:
+                        print(f"   Message: {response_json['message']}")
+                    return True, response_json
+                except:
+                    return True, {}
+            else:
+                print(f"❌ FAILED - Expected {expected_status}, got {response.status_code}")
+                print(f"   Response: {response.text[:200]}")
+                return False, {}
+
+        except Exception as e:
+            print(f"❌ FAILED - Error: {str(e)}")
+            return False, {}
+
+    def test_csv_upload_functionality(self):
+        """Test CSV upload feature comprehensively"""
+        print("\n" + "="*50)
+        print("TESTING CSV UPLOAD FUNCTIONALITY")
+        print("="*50)
+
+        # Test 1: Basic CSV upload with upsert mode
+        csv_content = self.create_test_csv([
+            ["matricula", "name", "address", "phone"],
+            ["TEST001", "CSV Test Employee 1", "Test Address 1", "(11) 99999-0001"],
+            ["TEST002", "CSV Test Employee 2", "Test Address 2", "(11) 99999-0002"]
+        ])
+        
+        files = {'file': ('test_employees.csv', csv_content, 'text/csv')}
+        
+        success, response = self.run_file_test(
+            "CSV Upload - Basic (Upsert)",
+            "POST",
+            "/employees/upload-csv?replace=false",
+            200,
+            files=files
+        )
+        
+        if not success:
+            print("❌ Basic CSV upload failed")
+            return False
+
+        # Test 2: Flexible column names (Portuguese)
+        csv_content_pt = self.create_test_csv([
+            ["matrícula", "nome", "endereco", "telefone"],
+            ["TEST003", "Funcionário Teste 3", "Endereço Teste 3", "(11) 99999-0003"],
+            ["TEST004", "Funcionário Teste 4", "Endereço Teste 4", "(11) 99999-0004"]
+        ])
+        
+        files_pt = {'file': ('test_employees_pt.csv', csv_content_pt, 'text/csv')}
+        
+        success, response = self.run_file_test(
+            "CSV Upload - Flexible Columns",
+            "POST",
+            "/employees/upload-csv?replace=false",
+            200,
+            files=files_pt
+        )
+        
+        if not success:
+            print("❌ Flexible columns CSV upload failed")
+            return False
+
+        # Test 3: Replace mode
+        csv_content_replace = self.create_test_csv([
+            ["matricula", "full_name", "default_address", "phone"],
+            ["REPLACE001", "Replace Employee 1", "Replace Address 1", "(11) 99999-9001"],
+            ["REPLACE002", "Replace Employee 2", "Replace Address 2", "(11) 99999-9002"]
+        ])
+        
+        files_replace = {'file': ('replace_employees.csv', csv_content_replace, 'text/csv')}
+        
+        success, response = self.run_file_test(
+            "CSV Upload - Replace Mode",
+            "POST",
+            "/employees/upload-csv?replace=true",
+            200,
+            files=files_replace
+        )
+        
+        if not success:
+            print("❌ Replace mode CSV upload failed")
+            return False
+
+        # Test 4: Invalid file format
+        files_invalid = {'file': ('test.txt', b'This is not a CSV file', 'text/plain')}
+        
+        success, response = self.run_file_test(
+            "CSV Upload - Invalid File Format",
+            "POST",
+            "/employees/upload-csv?replace=false",
+            400,
+            files=files_invalid
+        )
+        
+        if not success:
+            print("❌ Invalid file format test failed - should have returned 400")
+            return False
+
+        # Test 5: Search imported employee
+        success, response = self.run_test(
+            "Search Imported Employee",
+            "GET",
+            "/employees/search?matricula=REPLACE001",
+            200
+        )
+        
+        if success and response.get('matricula') == 'REPLACE001':
+            print(f"✅ Found imported employee: {response.get('full_name')}")
+        else:
+            print("❌ Could not find imported employee")
+            return False
+
+        # Test 6: List all employees to verify import
+        success, response = self.run_test(
+            "List All Employees After Import",
+            "GET",
+            "/employees",
+            200
+        )
+        
+        if success and isinstance(response, list):
+            test_employees = [emp for emp in response if emp.get('matricula', '').startswith('REPLACE')]
+            if test_employees:
+                print(f"✅ Found {len(test_employees)} imported test employees")
+                return True
+            else:
+                print("❌ No test employees found in employee list")
+                return False
+        else:
+            print("❌ Employee list retrieval failed")
+            return False
+
 def main():
     print("🚖 ARC TRANSPORTE API TESTING")
     print("="*60)
@@ -267,6 +430,7 @@ def main():
     tester.test_admin_endpoint()
     tester.test_sse_endpoint()
     tester.test_status_updates()
+    tester.test_csv_upload_functionality()
     
     # Print summary
     print("\n" + "="*60)

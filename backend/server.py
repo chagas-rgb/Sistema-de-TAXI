@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -12,6 +12,8 @@ import uuid
 from datetime import datetime, timezone
 import asyncio
 import json
+import csv
+import io
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -192,8 +194,87 @@ async def search_employee(matricula: str = Query(...)):
 @api_router.get("/employees", response_model=List[Employee])
 async def list_employees():
     """List all employees"""
-    employees = await db.employees.find({}, {"_id": 0}).to_list(100)
+    employees = await db.employees.find({}, {"_id": 0}).to_list(1000)
     return employees
+
+@api_router.post("/employees/upload-csv")
+async def upload_employees_csv(file: UploadFile = File(...), replace: bool = False):
+    """Upload CSV file to import employees. CSV must have: matricula, name (or full_name), address (or default_address), phone"""
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Arquivo deve ser CSV")
+    
+    try:
+        contents = await file.read()
+        # Try different encodings
+        try:
+            decoded = contents.decode('utf-8')
+        except UnicodeDecodeError:
+            decoded = contents.decode('latin-1')
+        
+        # Parse CSV
+        reader = csv.DictReader(io.StringIO(decoded))
+        
+        employees = []
+        errors = []
+        row_num = 1
+        
+        for row in reader:
+            row_num += 1
+            # Normalize column names (handle variations)
+            normalized = {}
+            for key, value in row.items():
+                if key:
+                    normalized[key.lower().strip()] = value.strip() if value else ""
+            
+            # Extract fields with flexible column names
+            matricula = normalized.get('matricula') or normalized.get('matrícula') or normalized.get('id')
+            full_name = normalized.get('name') or normalized.get('full_name') or normalized.get('nome') or normalized.get('nome_completo')
+            address = normalized.get('address') or normalized.get('default_address') or normalized.get('endereco') or normalized.get('endereço')
+            phone = normalized.get('phone') or normalized.get('telefone') or normalized.get('tel') or normalized.get('celular')
+            
+            if not matricula:
+                errors.append(f"Linha {row_num}: Matrícula não encontrada")
+                continue
+            if not full_name:
+                errors.append(f"Linha {row_num}: Nome não encontrado")
+                continue
+            
+            employees.append({
+                "matricula": str(matricula),
+                "full_name": full_name,
+                "default_address": address or "",
+                "phone": phone or ""
+            })
+        
+        if not employees:
+            raise HTTPException(status_code=400, detail=f"Nenhum funcionário válido encontrado. Erros: {'; '.join(errors)}")
+        
+        # Import to database
+        if replace:
+            # Replace all existing employees
+            await db.employees.delete_many({})
+            await db.employees.insert_many(employees)
+            action = "substituídos"
+        else:
+            # Upsert - update existing or insert new
+            for emp in employees:
+                await db.employees.update_one(
+                    {"matricula": emp["matricula"]},
+                    {"$set": emp},
+                    upsert=True
+                )
+            action = "importados/atualizados"
+        
+        return {
+            "success": True,
+            "message": f"{len(employees)} funcionários {action} com sucesso",
+            "imported_count": len(employees),
+            "errors": errors if errors else None
+        }
+        
+    except Exception as e:
+        logger.error(f"CSV upload error: {e}")
+        raise HTTPException(status_code=400, detail=f"Erro ao processar CSV: {str(e)}")
 
 # Taxi Request CRUD
 @api_router.post("/requests", response_model=TaxiRequest)
