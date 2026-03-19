@@ -2,8 +2,8 @@
 
 ## Original Problem Statement
 Build a taxi request web app for 'ARC Transporte' with:
-- Employee database with matricula, full_name, default_address
-- Matrícula auto-lookup to fill Name and Address
+- Employee database with matricula, full_name, default_address, phone
+- Matrícula auto-lookup to fill Name, Address, AND Phone
 - Multi-passenger support (max 4)
 - Status tracking: Aguardando, Confirmado, Finalizado
 - Cancel option for pending requests
@@ -13,6 +13,11 @@ Build a taxi request web app for 'ARC Transporte' with:
 - Portuguese language UI
 - Navy Blue and White color scheme
 
+### Feature Update (2026-03-19)
+- Added "Nome do Solicitante" mandatory field at top of form
+- Added phone numbers to employee table and auto-fill
+- Admin dashboard shows Solicitante at top + all passenger details with clickable phones
+
 ## Architecture
 - **Backend**: FastAPI + MongoDB
 - **Frontend**: React + Shadcn UI + Tailwind CSS
@@ -21,13 +26,13 @@ Build a taxi request web app for 'ARC Transporte' with:
 
 ## User Personas
 1. **Employee (Passenger)**: Requests taxi via matricula lookup, tracks status
-2. **Admin (Dispatcher)**: Views all requests, confirms taxis, finishes rides
+2. **Admin (Dispatcher)**: Views all requests, confirms taxis, finishes rides, calls passengers
 
 ## Core Requirements (Static)
 - [x] Employee lookup by matricula
-- [x] Auto-fill name and address
+- [x] Auto-fill name, address, AND phone
 - [x] Multi-passenger support (1-4)
-- [x] Request submission
+- [x] Request submission with requester name
 - [x] Live status tracking
 - [x] Request cancellation
 - [x] Admin password authentication
@@ -38,26 +43,31 @@ Build a taxi request web app for 'ARC Transporte' with:
 - [x] Portuguese UI
 - [x] Navy Blue/White theme
 - [x] Mobile-responsive design
+- [x] Nome do Solicitante field
+- [x] Clickable phone numbers in admin
 
 ## What's Been Implemented
 **Date: 2026-03-19**
 - Full backend API with FastAPI
-- MongoDB integration with 5 sample employees
+- MongoDB integration with 5 sample employees (with phone numbers)
 - SSE endpoint for real-time updates
 - Passenger Portal with request form
-- Employee matricula lookup
-- Multi-passenger management
-- Status page with live updates
+- **Nome do Solicitante** mandatory field
+- Employee matricula lookup (name, address, phone)
+- Multi-passenger management with full details
+- Status page with live updates and passenger info
 - Admin dashboard with password protection
+- **Solicitante section** at top of each request card
+- **All passengers with Name, Address, Phone** (clickable tel: links)
 - Request confirmation and finish functionality
-- Stats dashboard (Aguardando, Em Andamento, Finalizados)
+- Stats dashboard
 - Sound notification for new requests
 - Mobile-responsive design
 
 ## API Endpoints
-- GET /api/employees - List all employees
-- GET /api/employees/search?matricula={id} - Search employee
-- POST /api/requests - Create taxi request
+- GET /api/employees - List all employees (with phone)
+- GET /api/employees/search?matricula={id} - Search employee (with phone)
+- POST /api/requests - Create taxi request (with requester_name, passenger phones)
 - GET /api/requests - List all requests
 - GET /api/requests/{id} - Get request by ID
 - PUT /api/requests/{id}/status - Update status
@@ -65,15 +75,48 @@ Build a taxi request web app for 'ARC Transporte' with:
 - POST /api/admin/verify - Verify admin password
 - GET /api/requests/stream/events - SSE endpoint
 
+## Database Schema
+
+### Employees Collection
+```json
+{
+  "matricula": "101",
+  "full_name": "João Silva",
+  "default_address": "Rua A, 123 - Centro",
+  "phone": "(11) 99999-1001"
+}
+```
+
+### Taxi Requests Collection
+```json
+{
+  "id": "uuid",
+  "requester_name": "Roberto Gerente",
+  "main_passenger": {
+    "matricula": "101",
+    "full_name": "João Silva",
+    "address": "Rua A, 123",
+    "phone": "(11) 99999-1001"
+  },
+  "additional_passengers": [...],
+  "destination_address": "...",
+  "status": "aguardando",
+  "created_at": "ISO timestamp",
+  "updated_at": "ISO timestamp"
+}
+```
+
 ## Prioritized Backlog
 
 ### P0 (Critical) - DONE
 - [x] Core taxi request flow
 - [x] Admin dashboard
 - [x] Real-time updates
+- [x] Nome do Solicitante
+- [x] Phone numbers integration
 
 ### P1 (High)
-- [ ] SMS/Email notifications when taxi is confirmed
+- [ ] WhatsApp/SMS notifications when taxi is confirmed
 - [ ] Driver assignment system
 - [ ] Request history for employees
 
@@ -84,7 +127,7 @@ Build a taxi request web app for 'ARC Transporte' with:
 - [ ] Route optimization
 
 ## Next Tasks
-1. Add SMS/Email notifications for status changes
+1. Add WhatsApp/SMS notifications for status changes
 2. Implement driver management system
 3. Add request history for employees
 4. Enhance admin dashboard with analytics
