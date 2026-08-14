@@ -1,150 +1,302 @@
-# ARC Transporte - Taxi Request Web App
+# ARC Transportation Platform - Product Requirements Document
+
+## Version 2.0 - Multi-Tenant Transportation Management Platform
+
+---
 
 ## Original Problem Statement
-Build a taxi request web app for 'ARC Transporte' with:
-- Employee database with matricula, full_name, default_address, phone
-- Matrícula auto-lookup to fill Name, Address, AND Phone
-- Multi-passenger support (max 4)
-- Status tracking: Aguardando, Confirmado, Finalizado
-- Cancel option for pending requests
-- Admin dashboard with password 'ARC123'
-- Real-time SSE updates
-- Sound alerts for new requests
-- Portuguese language UI
-- Navy Blue and White color scheme
 
-### Feature Update (2026-03-19)
-- Added "Nome do Solicitante" mandatory field at top of form
-- Added phone numbers to employee table and auto-fill
-- Admin dashboard shows Solicitante at top + all passenger details with clickable phones
+Build a multi-tenant transportation management platform that evolves from the existing "ARC Transporte" taxi request app to support:
+- Multiple transportation operators (my businesses)
+- Multiple client companies per operator (my customers)
+- Fleet management for taxis, vans, and buses
+- Smart trip assembly and route optimization
+- Driver and client portals
+- Advanced reporting and exports
+
+---
 
 ## Architecture
-- **Backend**: FastAPI + MongoDB
-- **Frontend**: React + Shadcn UI + Tailwind CSS
+
+### Multi-Tenant Hierarchy
+```
+Platform (1)
+  └── Operators (Many) - Transportation companies I operate
+        └── Client Companies (Many) - Businesses that use my service
+              └── Passengers (Many) - Employees who request rides
+        └── Drivers (Many) - My drivers
+        └── Vehicles (Many) - My fleet
+        └── Trips (Many) - Ride requests/routes
+```
+
+### User Roles
+1. **Platform Owner** - Full access across all operators (devchagass@gmail.com)
+2. **Operator Admin** - Manages one operator's resources
+3. **Client Admin** - Manages one client company
+4. **Client User** - Views client company data
+5. **Driver** - Views assigned trips
+
+---
+
+## Tech Stack
+- **Backend**: FastAPI + Python 3.11
+- **Frontend**: React 18 + Vite + Tailwind CSS + Shadcn/UI
+- **Database**: MongoDB (Motor async driver)
+- **Authentication**: JWT-based with bcrypt
 - **Real-time**: Server-Sent Events (SSE)
-- **Database**: MongoDB with collections: employees, taxi_requests
 
-## User Personas
-1. **Employee (Passenger)**: Requests taxi via matricula lookup, tracks status
-2. **Admin (Dispatcher)**: Views all requests, confirms taxis, finishes rides, calls passengers
+---
 
-## Core Requirements (Static)
-- [x] Employee lookup by matricula
-- [x] Auto-fill name, address, AND phone
-- [x] Multi-passenger support (1-4)
-- [x] Request submission with requester name
-- [x] Live status tracking
-- [x] Request cancellation
-- [x] Admin password authentication
-- [x] Confirm taxi functionality
-- [x] Finish ride functionality
-- [x] Real-time SSE updates
-- [x] Sound alert for new requests
-- [x] Portuguese UI
-- [x] Navy Blue/White theme
-- [x] Mobile-responsive design
-- [x] Nome do Solicitante field
-- [x] Clickable phone numbers in admin
+## Database Collections
+
+| Collection | Purpose |
+|------------|---------|
+| platform | Platform settings (singleton) |
+| users | User accounts with roles |
+| operators | Transportation operators |
+| client_companies | Client companies |
+| passengers | Passenger database |
+| drivers_v2 | Driver registry (migrated) |
+| vehicles | Vehicle fleet |
+| trips | Trip/ride requests |
+| employees | Legacy (migrated to passengers) |
+| drivers | Legacy (migrated to drivers_v2) |
+| taxi_requests | Legacy (migrated to trips) |
+
+---
 
 ## What's Been Implemented
-**Date: 2026-03-19**
-- Full backend API with FastAPI
-- MongoDB integration with 5 sample employees (with phone numbers)
-- SSE endpoint for real-time updates
-- Passenger Portal with request form
-- **Nome do Solicitante** mandatory field
-- Employee matricula lookup (name, address, phone)
-- Multi-passenger management with full details
-- Status page with live updates and passenger info
-- Admin dashboard with password protection
-- **Solicitante section** at top of each request card
-- **All passengers with Name, Address, Phone** (clickable tel: links)
-- Request confirmation and finish functionality
-- Stats dashboard
-- Sound notification for new requests
-- Mobile-responsive design
 
-**Update 2: Tracking & Enhanced Cancellation**
-- **Acompanhamento (Tracking) page** at /acompanhamento - no password needed
-- Real-time SSE updates on tracking page
-- Shows all active requests (Aguardando + Confirmado)
-- **Cancel with reason** - dropdown with 4 options:
-  - Passageiro saiu mais cedo
-  - Não é mais necessário
-  - Erro na solicitação
-  - Outro (with custom text input)
-- **cancellation_reason** stored in database
-- Admin dashboard shows **"Motivo do Cancelamento"** for cancelled requests
-- **Twilio SMS integration** ready (requires credentials):
-  - SMS sent when status = Confirmado
-  - SMS sent when status = Cancelado (includes reason)
+### Phase 1: Foundations ✅
+- [x] Multi-tenant data model (Platform → Operator → Client Company)
+- [x] JWT authentication with role-based access control
+- [x] Auto-migration of existing ARC data as first Operator
+- [x] Platform Owner account (devchagass@gmail.com)
+- [x] Operator Admin accounts
+- [x] Tenant filtering on all queries
+
+### Phase 2: Core Registries ✅
+- [x] Client Company CRUD (legal_name, trade_name, CNPJ, contacts)
+- [x] Central Passenger Database (matricula, name, address, city, neighborhood)
+- [x] Driver Registry (name, phone, CNH, authorized_cities, availability)
+- [x] Vehicle Registry (brand, model, plate, type, capacity, primary_driver)
+- [x] CSV Import for passengers and drivers
+- [x] Search and filtering
+
+### Phase 3: Import & Smart Assembly ✅
+- [x] Spreadsheet preview endpoint with validation
+- [x] Column auto-detection (flexible mapping)
+- [x] Passenger matching with existing database
+- [x] Smart Trip Assembly Engine
+  - Groups passengers by city, neighborhood, time, destination
+  - Suggests optimal vehicle type based on passenger count
+  - Auto-assigns available drivers
+  - Handles capacity splitting
+- [x] Bulk trip confirmation
+
+### Phase 4: Portals ✅
+- [x] Driver Portal (mobile-friendly)
+  - Today's trips view
+  - Upcoming trips view
+  - Trip details with passenger info
+  - Start/Complete trip actions
+  - Quick call passenger
+- [x] Client Company Portal
+  - Active trips dashboard
+  - Trip history with search/filters
+  - Statistics (total, active, completed, cancelled)
+- [x] Updated Admin Dashboard
+  - All CRUD operations
+  - CSV import with preview
+
+### Phase 5: Reporting & Export ✅
+- [x] Reports summary endpoint (by driver, city, company, vehicle type)
+- [x] Trips CSV export with filters
+- [x] Drivers CSV export
+- [x] Passengers CSV export
+- [x] Date range filtering
+- [x] Statistics (completion rate, total passengers, etc.)
+
+### Phase 6: Validations & Notifications ✅
+- [x] Server-side validation module
+  - Driver availability checks
+  - City authorization validation
+  - Vehicle capacity validation
+  - Time conflict detection
+  - Duplicate passenger warnings
+- [x] Notification service abstraction
+  - In-app notifications (SSE)
+  - SMS channel (Twilio-ready, mocked)
+  - WhatsApp placeholder (ready for integration)
+  - Push notification placeholder
+  - Trip confirmed/cancelled notifications
+
+### Legacy Compatibility ✅
+- [x] All existing `/api/requests` endpoints work
+- [x] `/api/employees` endpoints work
+- [x] `/api/drivers` endpoints work
+- [x] Legacy admin password (ARC123) still works
+- [x] Public tracking page works
+- [x] SSE real-time updates work
+
+---
 
 ## API Endpoints
-- GET /api/employees - List all employees (with phone)
-- GET /api/employees/search?matricula={id} - Search employee (with phone)
-- POST /api/requests - Create taxi request (with requester_name, passenger phones)
-- GET /api/requests - List all requests
-- GET /api/requests/active - List active requests (aguardando + confirmado)
-- GET /api/requests/{id} - Get request by ID
-- PUT /api/requests/{id}/status - Update status
-- DELETE /api/requests/{id} - Cancel request (legacy)
-- POST /api/requests/{id}/cancel - Cancel with reason
-- POST /api/admin/verify - Verify admin password
-- GET /api/requests/stream/events - SSE endpoint
 
-## Database Schema
+### Authentication
+- `POST /api/auth/login` - Login
+- `POST /api/auth/register` - Register (admin only)
+- `GET /api/auth/me` - Current user info
+- `POST /api/auth/change-password` - Change password
 
-### Employees Collection
-```json
-{
-  "matricula": "101",
-  "full_name": "João Silva",
-  "default_address": "Rua A, 123 - Centro",
-  "phone": "(11) 99999-1001"
-}
-```
+### Operators (Platform Owner only)
+- `GET /api/operators` - List operators
+- `POST /api/operators` - Create operator
+- `GET /api/operators/{id}` - Get operator
+- `PUT /api/operators/{id}` - Update operator
 
-### Taxi Requests Collection
-```json
-{
-  "id": "uuid",
-  "requester_name": "Roberto Gerente",
-  "main_passenger": {
-    "matricula": "101",
-    "full_name": "João Silva",
-    "address": "Rua A, 123",
-    "phone": "(11) 99999-1001"
-  },
-  "additional_passengers": [...],
-  "destination_address": "...",
-  "status": "aguardando",
-  "created_at": "ISO timestamp",
-  "updated_at": "ISO timestamp"
-}
-```
+### Client Companies
+- `GET /api/companies` - List companies
+- `POST /api/companies` - Create company
+- `GET /api/companies/{id}` - Get company
+- `PUT /api/companies/{id}` - Update company
 
-## Prioritized Backlog
+### Passengers
+- `GET /api/passengers` - List passengers
+- `GET /api/passengers/search?matricula=XXX` - Search by matricula
+- `POST /api/passengers` - Create passenger
+- `PUT /api/passengers/{id}` - Update passenger
+- `POST /api/passengers/upload-csv` - CSV import
 
-### P0 (Critical) - DONE
-- [x] Core taxi request flow
-- [x] Admin dashboard
-- [x] Real-time updates
-- [x] Nome do Solicitante
-- [x] Phone numbers integration
+### Drivers
+- `GET /api/drivers` - List drivers
+- `POST /api/drivers` - Create driver
+- `GET /api/drivers/{id}` - Get driver
+- `PUT /api/drivers/{id}` - Update driver
+- `PUT /api/drivers/{id}/status` - Update status
+- `POST /api/drivers/upload-csv` - CSV import
 
-### P1 (High)
-- [ ] WhatsApp/SMS notifications when taxi is confirmed
-- [ ] Driver assignment system
-- [ ] Request history for employees
+### Vehicles
+- `GET /api/vehicles` - List vehicles
+- `POST /api/vehicles` - Create vehicle
+- `GET /api/vehicles/{id}` - Get vehicle
+- `PUT /api/vehicles/{id}` - Update vehicle
 
-### P2 (Medium)
-- [ ] Estimated arrival time
-- [ ] Driver ratings
-- [ ] Multiple vehicle types
-- [ ] Route optimization
+### Trips
+- `GET /api/trips` - List trips
+- `GET /api/trips/active` - Active trips
+- `POST /api/trips` - Create trip
+- `GET /api/trips/{id}` - Get trip
+- `PUT /api/trips/{id}/status` - Update status
+- `PUT /api/trips/{id}/assign-driver` - Assign driver
+- `PUT /api/trips/{id}/schedule` - Update schedule
+- `POST /api/trips/{id}/cancel` - Cancel with reason
 
-## Next Tasks
-1. Add WhatsApp/SMS notifications for status changes
-2. Implement driver management system
-3. Add request history for employees
-4. Enhance admin dashboard with analytics
+### Import & Assembly
+- `POST /api/import/preview-spreadsheet` - Preview CSV
+- `POST /api/import/smart-assembly` - Generate trip suggestions
+- `POST /api/import/confirm-trips` - Create trips from suggestions
+
+### Reports
+- `GET /api/reports/summary` - Statistics summary
+- `GET /api/reports/export/trips` - Export trips CSV
+- `GET /api/reports/export/drivers` - Export drivers CSV
+- `GET /api/reports/export/passengers` - Export passengers CSV
+
+### Legacy (Backward Compatible)
+- `POST /api/requests` - Create taxi request
+- `GET /api/requests` - List requests
+- `GET /api/requests/active` - Active requests
+- `PUT /api/requests/{id}/status` - Update status
+- `PUT /api/requests/{id}/assign-driver` - Assign driver
+- `POST /api/admin/verify` - Verify admin password
+
+---
+
+## Frontend Routes
+
+| Route | Access | Description |
+|-------|--------|-------------|
+| `/` | Public | Taxi request form (legacy) |
+| `/status/:id` | Public | Request status |
+| `/acompanhamento` | Public | Real-time tracking |
+| `/admin-control` | Password: ARC123 | Legacy admin panel |
+| `/login` | Public | New login page |
+| `/platform` | Platform Owner | Platform control dashboard |
+| `/admin` | Operator Admin+ | Operator management |
+| `/driver` | Driver+ | Driver portal |
+| `/portal` | Client User+ | Client portal |
+
+---
+
+## Test Credentials
+
+See `/app/memory/test_credentials.md` for all login credentials.
+
+---
+
+## Files Reference
+
+### Backend
+- `/app/backend/server.py` - Main FastAPI application
+- `/app/backend/auth.py` - Authentication module
+- `/app/backend/models.py` - Pydantic models
+- `/app/backend/migrate.py` - Database migration script
+- `/app/backend/validations.py` - Business rules validation
+- `/app/backend/notifications.py` - Notification service
+
+### Frontend
+- `/app/frontend/src/App.js` - Router and providers
+- `/app/frontend/src/contexts/AuthContext.jsx` - Auth context
+- `/app/frontend/src/pages/LoginPage.jsx` - Login
+- `/app/frontend/src/pages/PlatformDashboard.jsx` - Platform owner
+- `/app/frontend/src/pages/OperatorAdminDashboard.jsx` - Operator admin
+- `/app/frontend/src/pages/DriverPortal.jsx` - Driver portal
+- `/app/frontend/src/pages/ClientPortal.jsx` - Client portal
+- `/app/frontend/src/components/SmartAssemblyWizard.jsx` - Import wizard
+
+---
+
+## Assumptions Made
+
+1. **Vehicle Capacities**: Default capacities set as Car=4, Van=6, Minibus=15, Bus=40
+2. **Time Conflicts**: Trips within the same hour are considered conflicts
+3. **Driver Authorization**: Empty authorized_cities means driver can work anywhere
+4. **CSV Columns**: Flexible column name matching (e.g., "nome" or "name")
+5. **Status Flow**: pending → scheduled → confirmed → in_progress → completed
+
+---
+
+## What Could NOT Be Implemented
+
+1. **Excel Import**: Only CSV is currently supported (would need openpyxl library)
+2. **PDF Export**: Returns JSON (would need reportlab or similar library)
+3. **Live GPS/Map**: Data model supports lat/lng but no map integration yet
+4. **WhatsApp Integration**: Placeholder channel ready for Twilio WhatsApp Business API
+5. **Push Notifications**: Placeholder channel ready for Firebase FCM or similar
+
+---
+
+## Suggested Next Steps
+
+1. **Live GPS Tracking**: Integrate Google Maps or Mapbox for driver location
+2. **WhatsApp Business**: Configure Twilio WhatsApp for customer notifications
+3. **Mobile Apps**: Native iOS/Android apps for drivers
+4. **Route Optimization**: Integrate with Google Directions API for stop ordering
+5. **Financial Module**: Track trip costs, driver payments, client billing
+6. **Analytics Dashboard**: Charts and graphs for business insights
+
+---
+
+## Change Log
+
+### 2024-12-14 (This Session)
+- Complete platform rebuild from single-tenant to multi-tenant
+- Implemented all 6 phases as requested
+- Migrated existing ARC data to new structure
+- Added authentication, all registries, smart assembly, portals, reports
+- Maintained full backward compatibility with legacy endpoints
+
+---
+
+*Last updated: December 14, 2024*
