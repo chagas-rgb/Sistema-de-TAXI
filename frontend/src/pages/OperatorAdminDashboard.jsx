@@ -36,8 +36,11 @@ import {
 import { 
   Building2, Users, Car, Truck, Plus, Settings, LogOut, LayoutDashboard,
   Loader2, RefreshCw, Phone, Mail, MapPin, Edit2, Trash2, Search,
-  Upload, Download, FileSpreadsheet, UserCog, Calendar, Clock, User
+  Upload, Download, FileSpreadsheet, UserCog, Calendar, Clock, User,
+  Key, Copy, RotateCcw, ShieldCheck, ShieldOff, Clipboard, Route,
+  Receipt, History
 } from "lucide-react";
+import ManualTripAssembly from "@/components/ManualTripAssembly";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -53,6 +56,7 @@ export default function OperatorAdminDashboard() {
   const [passengers, setPassengers] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
+  const [trips, setTrips] = useState([]);
   
   // Stats
   const [stats, setStats] = useState({ companies: 0, passengers: 0, drivers: 0, vehicles: 0, trips: 0 });
@@ -63,6 +67,20 @@ export default function OperatorAdminDashboard() {
   const [showDriverModal, setShowDriverModal] = useState(false);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showCredentialModal, setShowCredentialModal] = useState(false);
+  const [showManualAssembly, setShowManualAssembly] = useState(false);
+  const [showVoucherModal, setShowVoucherModal] = useState(false);
+  
+  // Voucher editing
+  const [editingTrip, setEditingTrip] = useState(null);
+  const [voucherNumber, setVoucherNumber] = useState("");
+  const [voucherSaving, setVoucherSaving] = useState(false);
+  
+  // Credential management
+  const [credentialCompany, setCredentialCompany] = useState(null);
+  const [credentialEmail, setCredentialEmail] = useState("");
+  const [generatedCredential, setGeneratedCredential] = useState(null);
+  const [credentialLoading, setCredentialLoading] = useState(false);
   
   // Edit mode
   const [editingItem, setEditingItem] = useState(null);
@@ -115,6 +133,7 @@ export default function OperatorAdminDashboard() {
       setPassengers(passengersRes.data);
       setDrivers(driversRes.data);
       setVehicles(vehiclesRes.data);
+      setTrips(tripsRes.data);
       
       setStats({
         companies: companiesRes.data.length,
@@ -196,6 +215,146 @@ export default function OperatorAdminDashboard() {
     });
     setEditingItem(company);
     setShowCompanyModal(true);
+  };
+
+  // Client Company Credential Management
+  const openCredentialModal = async (company) => {
+    setCredentialCompany(company);
+    setCredentialEmail("");
+    setGeneratedCredential(null);
+    setCredentialLoading(true);
+    
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const response = await axios.get(`${API}/companies/${company.id}/credential`, { headers });
+      if (response.data.has_credential) {
+        setGeneratedCredential({
+          email: response.data.user.email,
+          status: response.data.user.status,
+          last_login: response.data.user.last_login,
+          existing: true
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching credential:", error);
+    } finally {
+      setCredentialLoading(false);
+      setShowCredentialModal(true);
+    }
+  };
+
+  const createCompanyCredential = async () => {
+    if (!credentialEmail.trim()) {
+      toast.error("Email é obrigatório");
+      return;
+    }
+    
+    setCredentialLoading(true);
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const response = await axios.post(
+        `${API}/companies/${credentialCompany.id}/create-credential`,
+        { email: credentialEmail },
+        { headers }
+      );
+      
+      setGeneratedCredential({
+        email: response.data.email,
+        password: response.data.password,
+        status: 'active',
+        existing: false,
+        justCreated: true
+      });
+      
+      toast.success("Credencial criada com sucesso!");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao criar credencial");
+    } finally {
+      setCredentialLoading(false);
+    }
+  };
+
+  const resetCompanyPassword = async () => {
+    setCredentialLoading(true);
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const response = await axios.post(
+        `${API}/companies/${credentialCompany.id}/reset-password`,
+        {},
+        { headers }
+      );
+      
+      setGeneratedCredential({
+        email: response.data.email,
+        password: response.data.password,
+        status: 'active',
+        existing: true,
+        justReset: true
+      });
+      
+      toast.success("Senha redefinida com sucesso!");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao redefinir senha");
+    } finally {
+      setCredentialLoading(false);
+    }
+  };
+
+  const toggleCompanyAccess = async (active) => {
+    setCredentialLoading(true);
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      await axios.put(
+        `${API}/companies/${credentialCompany.id}/toggle-access`,
+        { active },
+        { headers }
+      );
+      
+      setGeneratedCredential(prev => ({ ...prev, status: active ? 'active' : 'inactive' }));
+      toast.success(`Acesso ${active ? 'ativado' : 'desativado'} com sucesso!`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao alterar acesso");
+    } finally {
+      setCredentialLoading(false);
+    }
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    toast.success("Copiado!");
+  };
+
+  // Voucher Management
+  const openVoucherModal = (trip) => {
+    setEditingTrip(trip);
+    setVoucherNumber(trip.voucher_number || "");
+    setShowVoucherModal(true);
+  };
+
+  const saveVoucher = async () => {
+    if (!editingTrip) return;
+    
+    setVoucherSaving(true);
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      await axios.put(
+        `${API}/trips/${editingTrip.id}/voucher`,
+        { voucher_number: voucherNumber },
+        { headers }
+      );
+      
+      // Update local state
+      setTrips(prev => prev.map(t => 
+        t.id === editingTrip.id ? { ...t, voucher_number: voucherNumber } : t
+      ));
+      
+      toast.success("Voucher salvo com sucesso!");
+      setShowVoucherModal(false);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao salvar voucher");
+    } finally {
+      setVoucherSaving(false);
+    }
   };
 
   // Passenger CRUD
@@ -563,6 +722,8 @@ export default function OperatorAdminDashboard() {
               <TabsTrigger value="passengers">Passageiros</TabsTrigger>
               <TabsTrigger value="drivers">Motoristas</TabsTrigger>
               <TabsTrigger value="vehicles">Veículos</TabsTrigger>
+              <TabsTrigger value="trips">Viagens</TabsTrigger>
+              <TabsTrigger value="assembly">Montagem Manual</TabsTrigger>
             </TabsList>
             
             <div className="flex items-center gap-2">
@@ -625,7 +786,10 @@ export default function OperatorAdminDashboard() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" onClick={() => editCompany(company)}>
+                          <Button variant="ghost" size="sm" onClick={() => openCredentialModal(company)} title="Gerenciar Acesso">
+                            <Key className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => editCompany(company)} title="Editar">
                             <Edit2 className="w-4 h-4" />
                           </Button>
                         </TableCell>
@@ -846,6 +1010,147 @@ export default function OperatorAdminDashboard() {
                     )}
                   </TableBody>
                 </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Trips/History Tab */}
+          <TabsContent value="trips">
+            <Card className="border-0 shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <History className="w-5 h-5 text-[#1e3a5f]" />
+                    Histórico de Viagens
+                  </CardTitle>
+                  <CardDescription>Visualize e gerencie todas as viagens realizadas</CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Data</TableHead>
+                      <TableHead>Empresa</TableHead>
+                      <TableHead>Solicitante</TableHead>
+                      <TableHead>Passageiros</TableHead>
+                      <TableHead>Motorista</TableHead>
+                      <TableHead>Veículo</TableHead>
+                      <TableHead>Voucher</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {trips.filter(t => {
+                      if (!searchTerm) return true;
+                      const search = searchTerm.toLowerCase();
+                      return (
+                        t.requester_name?.toLowerCase().includes(search) ||
+                        t.driver_name?.toLowerCase().includes(search) ||
+                        t.voucher_number?.toLowerCase().includes(search) ||
+                        t.passengers?.some(p => p.name?.toLowerCase().includes(search))
+                      );
+                    }).map((trip) => {
+                      const company = companies.find(c => c.id === trip.client_company_id);
+                      const mainPassenger = trip.passengers?.[0];
+                      return (
+                        <TableRow key={trip.id}>
+                          <TableCell className="whitespace-nowrap">
+                            {trip.created_at?.split('T')[0]}
+                          </TableCell>
+                          <TableCell className="max-w-[120px] truncate">
+                            {company?.trade_name || company?.legal_name || '-'}
+                          </TableCell>
+                          <TableCell>{trip.requester_name || '-'}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Users className="w-3 h-3 text-slate-400" />
+                              <span>{trip.passenger_count || trip.passengers?.length || 0}</span>
+                              {mainPassenger && (
+                                <span className="text-xs text-slate-500 truncate max-w-[80px]" title={mainPassenger.name}>
+                                  ({mainPassenger.name})
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>{trip.driver_name || '-'}</TableCell>
+                          <TableCell>
+                            {trip.vehicle_plate ? (
+                              <Badge variant="outline" className="text-xs">
+                                {trip.vehicle_plate}
+                              </Badge>
+                            ) : '-'}
+                          </TableCell>
+                          <TableCell>
+                            {trip.voucher_number ? (
+                              <Badge variant="secondary" className="font-mono text-xs">
+                                <Receipt className="w-3 h-3 mr-1" />
+                                {trip.voucher_number}
+                              </Badge>
+                            ) : (
+                              <span className="text-slate-400">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={
+                              trip.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                              trip.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                              trip.status === 'in_progress' ? 'bg-purple-100 text-purple-700' :
+                              trip.status === 'confirmed' ? 'bg-blue-100 text-blue-700' :
+                              'bg-amber-100 text-amber-700'
+                            }>
+                              {trip.status === 'pending' ? 'Aguardando' :
+                               trip.status === 'scheduled' ? 'Agendado' :
+                               trip.status === 'confirmed' ? 'Confirmado' :
+                               trip.status === 'in_progress' ? 'Em Andamento' :
+                               trip.status === 'completed' ? 'Finalizado' :
+                               trip.status === 'cancelled' ? 'Cancelado' : trip.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openVoucherModal(trip)}
+                              title="Editar Voucher"
+                            >
+                              <Receipt className="w-4 h-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Manual Assembly Tab */}
+          <TabsContent value="assembly">
+            <Card className="border-0 shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Route className="w-5 h-5 text-[#1e3a5f]" />
+                  Montagem Manual de Viagens
+                </CardTitle>
+                <CardDescription>
+                  Importe uma planilha e monte viagens manualmente, atribuindo passageiros a veículos específicos
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ManualTripAssembly 
+                  companies={companies}
+                  drivers={drivers}
+                  vehicles={vehicles}
+                  onComplete={() => {
+                    setActiveTab("companies");
+                    fetchData();
+                    toast.success("Viagens criadas com sucesso!");
+                  }}
+                  onClose={() => setActiveTab("companies")}
+                />
               </CardContent>
             </Card>
           </TabsContent>
@@ -1204,6 +1509,207 @@ export default function OperatorAdminDashboard() {
                 <>
                   <Upload className="w-4 h-4 mr-2" />
                   Selecionar Arquivo
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Credential Management Modal */}
+      <Dialog open={showCredentialModal} onOpenChange={setShowCredentialModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Key className="w-5 h-5 text-[#1e3a5f]" />
+              Gerenciar Acesso da Empresa
+            </DialogTitle>
+            <DialogDescription>
+              {credentialCompany?.trade_name || credentialCompany?.legal_name}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {credentialLoading ? (
+            <div className="py-8 text-center">
+              <Loader2 className="w-8 h-8 animate-spin mx-auto text-[#1e3a5f]" />
+              <p className="text-sm text-slate-500 mt-2">Carregando...</p>
+            </div>
+          ) : generatedCredential?.existing || generatedCredential?.justCreated ? (
+            <div className="space-y-4 py-4">
+              {/* Existing or Just Created Credential */}
+              <div className="p-4 bg-slate-50 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-slate-700">Email</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => copyToClipboard(generatedCredential.email)}
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+                <p className="text-sm font-mono bg-white p-2 rounded border">
+                  {generatedCredential.email}
+                </p>
+              </div>
+              
+              {(generatedCredential.password || generatedCredential.justCreated || generatedCredential.justReset) && (
+                <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-amber-800">Senha</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => copyToClipboard(generatedCredential.password)}
+                    >
+                      <Copy className="w-4 h-4 text-amber-700" />
+                    </Button>
+                  </div>
+                  <p className="text-sm font-mono bg-white p-2 rounded border border-amber-200">
+                    {generatedCredential.password}
+                  </p>
+                  <p className="text-xs text-amber-700 mt-2">
+                    ⚠️ Copie e envie esta senha ao cliente. Ela não será mostrada novamente!
+                  </p>
+                </div>
+              )}
+              
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <div className="flex items-center gap-2">
+                  {generatedCredential.status === 'active' ? (
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  ) : (
+                    <ShieldOff className="w-4 h-4 text-red-600" />
+                  )}
+                  <span className="text-sm">
+                    Acesso {generatedCredential.status === 'active' ? 'Ativo' : 'Desativado'}
+                  </span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => toggleCompanyAccess(generatedCredential.status !== 'active')}
+                  disabled={credentialLoading}
+                >
+                  {generatedCredential.status === 'active' ? 'Desativar' : 'Ativar'}
+                </Button>
+              </div>
+              
+              {generatedCredential.last_login && (
+                <p className="text-xs text-slate-500">
+                  Último login: {new Date(generatedCredential.last_login).toLocaleString('pt-BR')}
+                </p>
+              )}
+              
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={resetCompanyPassword}
+                  disabled={credentialLoading}
+                  className="flex-1"
+                >
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  Redefinir Senha
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4 py-4">
+              {/* No Credential Yet */}
+              <div className="p-4 bg-blue-50 rounded-lg text-center">
+                <Key className="w-8 h-8 mx-auto text-blue-500 mb-2" />
+                <p className="text-sm text-blue-700">
+                  Esta empresa ainda não possui credenciais de acesso.
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Email para Login *</Label>
+                <Input
+                  type="email"
+                  placeholder="empresa@email.com"
+                  value={credentialEmail}
+                  onChange={(e) => setCredentialEmail(e.target.value)}
+                />
+              </div>
+              
+              <Button
+                onClick={createCompanyCredential}
+                disabled={credentialLoading || !credentialEmail.trim()}
+                className="w-full btn-navy"
+              >
+                {credentialLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Criando...
+                  </>
+                ) : (
+                  <>
+                    <Key className="w-4 h-4 mr-2" />
+                    Criar Credencial
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCredentialModal(false)}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Voucher Edit Modal */}
+      <Dialog open={showVoucherModal} onOpenChange={setShowVoucherModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="w-5 h-5 text-[#1e3a5f]" />
+              Editar Voucher
+            </DialogTitle>
+            <DialogDescription>
+              {editingTrip && (
+                <>
+                  Viagem de {editingTrip.requester_name || editingTrip.passengers?.[0]?.name || 'N/A'} 
+                  {' - '}{editingTrip.created_at?.split('T')[0]}
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label>Número do Voucher</Label>
+              <Input
+                placeholder="Ex: VCH-2024-001"
+                value={voucherNumber}
+                onChange={(e) => setVoucherNumber(e.target.value)}
+                data-testid="voucher-input"
+              />
+              <p className="text-xs text-slate-500">
+                Campo opcional. Pode ser preenchido ou alterado a qualquer momento, inclusive após a conclusão da viagem.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowVoucherModal(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={saveVoucher}
+              disabled={voucherSaving}
+              className="btn-navy"
+            >
+              {voucherSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Salvando...
+                </>
+              ) : (
+                <>
+                  <Receipt className="w-4 h-4 mr-2" />
+                  Salvar Voucher
                 </>
               )}
             </Button>

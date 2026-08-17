@@ -49,12 +49,14 @@ app = FastAPI(title="ARC Transportation Platform", version="2.0.0")
 # Create routers
 api_router = APIRouter(prefix="/api")
 auth_router = APIRouter(prefix="/api/auth", tags=["Authentication"])
+users_router = APIRouter(prefix="/api/users", tags=["User Management"])
 operators_router = APIRouter(prefix="/api/operators", tags=["Operators"])
 companies_router = APIRouter(prefix="/api/companies", tags=["Client Companies"])
 passengers_router = APIRouter(prefix="/api/passengers", tags=["Passengers"])
 drivers_router = APIRouter(prefix="/api/drivers", tags=["Drivers"])
 vehicles_router = APIRouter(prefix="/api/vehicles", tags=["Vehicles"])
 trips_router = APIRouter(prefix="/api/trips", tags=["Trips"])
+import_router = APIRouter(prefix="/api/import", tags=["Import & Assembly"])
 legacy_router = APIRouter(prefix="/api", tags=["Legacy Compatibility"])
 
 # Configure logging
@@ -206,6 +208,418 @@ async def change_password(
     )
     
     return {"message": "Senha alterada com sucesso"}
+
+# ==================== USER MANAGEMENT ROUTES ====================
+
+class UserCreateRequest(BaseModel):
+    email: str
+    password: Optional[str] = None  # If None, auto-generate
+    name: str
+    role: str
+    operator_id: Optional[str] = None
+    client_company_id: Optional[str] = None
+    driver_id: Optional[str] = None  # Link to driver record
+    phone: Optional[str] = ""
+
+class UserUpdateRequest(BaseModel):
+    email: Optional[str] = None
+    name: Optional[str] = None
+    role: Optional[str] = None
+    operator_id: Optional[str] = None
+    client_company_id: Optional[str] = None
+    driver_id: Optional[str] = None
+    phone: Optional[str] = None
+    status: Optional[str] = None  # active, inactive
+
+@users_router.get("")
+async def list_users(
+    current_user: dict = Depends(get_current_user),
+    role: Optional[str] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = None
+):
+    """List users with permission scoping"""
+    query = {}
+    
+    # Permission scoping
+    if current_user["role"] == UserRole.PLATFORM_OWNER:
+        # Platform owner sees all users
+        pass
+    elif current_user["role"] == UserRole.OPERATOR_ADMIN:
+        # Operator admin sees only users within their operator
+        query["operator_id"] = current_user.get("operator_id")
+    else:
+        raise HTTPException(status_code=403, detail="Permissão insuficiente")
+    
+    # Filters
+    if role:
+        query["role"] = role
+    if status:
+        query["status"] = status
+    if search:
+        query["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"email": {"$regex": search, "$options": "i"}}
+        ]
+    
+    users = await db.users.find(query, {"_id": 0, "password_hash": 0}).to_list(500)
+    
+    # Enrich with linked entity names
+    for user in users:
+        if user.get("operator_id"):
+            operator = await db.operators.find_one({"id": user["operator_id"]}, {"_id": 0, "name": 1})
+            user["operator_name"] = operator.get("name") if operator else None
+        if user.get("client_company_id"):
+            company = await db.client_companies.find_one({"id": user["client_company_id"]}, {"_id": 0, "legal_name": 1, "trade_name": 1})
+            user["client_company_name"] = company.get("trade_name") or company.get("legal_name") if company else None
+        if user.get("driver_id"):
+            driver = await db.drivers_v2.find_one({"id": user["driver_id"]}, {"_id": 0, "name": 1})
+            user["driver_name"] = driver.get("name") if driver else None
+    
+    return users
+
+@users_router.post("")
+async def create_user(
+    data: UserCreateRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new user with full CRUD control"""
+    import secrets
+    import string
+    
+    # Permission checks
+    if current_user["role"] not in [UserRole.PLATFORM_OWNER, UserRole.OPERATOR_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permissão insuficiente")
+    
+    # Role-specific permission checks
+    if data.role == UserRole.PLATFORM_OWNER:
+        if current_user["role"] != UserRole.PLATFORM_OWNER:
+            raise HTTPException(status_code=403, detail="Apenas o proprietário da plataforma pode criar outro proprietário")
+    
+    if data.role == UserRole.OPERATOR_ADMIN:
+        if current_user["role"] != UserRole.PLATFORM_OWNER:
+            raise HTTPException(status_code=403, detail="Apenas o proprietário da plataforma pode criar admins de operadores")
+    
+    if data.role in [UserRole.CLIENT_ADMIN, UserRole.CLIENT_USER]:
+        if current_user["role"] == UserRole.OPERATOR_ADMIN:
+            # Verify client company belongs to this operator
+            if data.client_company_id:
+                company = await db.client_companies.find_one({"id": data.client_company_id})
+                if not company or company.get("operator_id") != current_user.get("operator_id"):
+                    raise HTTPException(status_code=403, detail="Empresa não pertence ao seu operador")
+            # Set operator_id from current user
+            data.operator_id = current_user.get("operator_id")
+    
+    if data.role == UserRole.DRIVER:
+        if current_user["role"] == UserRole.OPERATOR_ADMIN:
+            # Verify driver belongs to this operator
+            if data.driver_id:
+                driver = await db.drivers_v2.find_one({"id": data.driver_id})
+                if not driver or driver.get("operator_id") != current_user.get("operator_id"):
+                    raise HTTPException(status_code=403, detail="Motorista não pertence ao seu operador")
+            # Set operator_id from current user
+            data.operator_id = current_user.get("operator_id")
+    
+    # Check if email already exists
+    existing = await db.users.find_one({"email": data.email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email já está em uso")
+    
+    # Generate password if not provided
+    password = data.password
+    generated_password = None
+    if not password:
+        alphabet = string.ascii_letters + string.digits + "!@#$%"
+        password = ''.join(secrets.choice(alphabet) for _ in range(12))
+        generated_password = password
+    
+    # Create user
+    user = {
+        "id": str(uuid.uuid4()),
+        "email": data.email,
+        "password_hash": hash_password(password),
+        "name": data.name,
+        "role": data.role,
+        "operator_id": data.operator_id,
+        "client_company_id": data.client_company_id,
+        "driver_id": data.driver_id,
+        "phone": data.phone or "",
+        "status": "active",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "last_login": None,
+        "created_by": current_user["user_id"]
+    }
+    await db.users.insert_one(user)
+    
+    # Link to driver record if applicable
+    if data.driver_id:
+        await db.drivers_v2.update_one(
+            {"id": data.driver_id},
+            {"$set": {"user_id": user["id"], "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+    
+    response = {
+        "success": True,
+        "message": "Usuário criado com sucesso",
+        "user_id": user["id"],
+        "email": data.email
+    }
+    
+    if generated_password:
+        response["password"] = generated_password
+        response["note"] = "Guarde esta senha! Ela não será mostrada novamente."
+    
+    return response
+
+@users_router.get("/{user_id}")
+async def get_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    """Get user details"""
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    
+    # Permission check
+    if current_user["role"] == UserRole.OPERATOR_ADMIN:
+        if user.get("operator_id") != current_user.get("operator_id"):
+            raise HTTPException(status_code=403, detail="Usuário não pertence ao seu operador")
+    elif current_user["role"] not in [UserRole.PLATFORM_OWNER]:
+        if user["id"] != current_user["user_id"]:
+            raise HTTPException(status_code=403, detail="Acesso negado")
+    
+    # Enrich with linked entity names
+    if user.get("operator_id"):
+        operator = await db.operators.find_one({"id": user["operator_id"]}, {"_id": 0, "name": 1})
+        user["operator_name"] = operator.get("name") if operator else None
+    if user.get("client_company_id"):
+        company = await db.client_companies.find_one({"id": user["client_company_id"]}, {"_id": 0, "legal_name": 1, "trade_name": 1})
+        user["client_company_name"] = company.get("trade_name") or company.get("legal_name") if company else None
+    if user.get("driver_id"):
+        driver = await db.drivers_v2.find_one({"id": user["driver_id"]}, {"_id": 0, "name": 1})
+        user["driver_name"] = driver.get("name") if driver else None
+    
+    return user
+
+@users_router.put("/{user_id}")
+async def update_user(
+    user_id: str,
+    data: UserUpdateRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update user details"""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    
+    # Permission checks
+    if current_user["role"] == UserRole.OPERATOR_ADMIN:
+        if user.get("operator_id") != current_user.get("operator_id"):
+            raise HTTPException(status_code=403, detail="Usuário não pertence ao seu operador")
+        # Cannot change platform owner or operator admin users
+        if user.get("role") in [UserRole.PLATFORM_OWNER, UserRole.OPERATOR_ADMIN]:
+            raise HTTPException(status_code=403, detail="Não pode editar este tipo de usuário")
+    elif current_user["role"] != UserRole.PLATFORM_OWNER:
+        raise HTTPException(status_code=403, detail="Permissão insuficiente")
+    
+    # Role change restrictions
+    if data.role:
+        if data.role == UserRole.PLATFORM_OWNER and current_user["role"] != UserRole.PLATFORM_OWNER:
+            raise HTTPException(status_code=403, detail="Não pode alterar para proprietário da plataforma")
+        if data.role == UserRole.OPERATOR_ADMIN and current_user["role"] != UserRole.PLATFORM_OWNER:
+            raise HTTPException(status_code=403, detail="Não pode alterar para admin de operador")
+    
+    # Check email uniqueness if changing
+    if data.email and data.email != user.get("email"):
+        existing = await db.users.find_one({"email": data.email})
+        if existing:
+            raise HTTPException(status_code=400, detail="Email já está em uso")
+    
+    # Build update
+    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if data.email:
+        update_data["email"] = data.email
+    if data.name:
+        update_data["name"] = data.name
+    if data.role:
+        update_data["role"] = data.role
+    if data.operator_id is not None:
+        update_data["operator_id"] = data.operator_id
+    if data.client_company_id is not None:
+        update_data["client_company_id"] = data.client_company_id
+    if data.driver_id is not None:
+        update_data["driver_id"] = data.driver_id
+    if data.phone is not None:
+        update_data["phone"] = data.phone
+    if data.status:
+        update_data["status"] = data.status
+    
+    await db.users.update_one({"id": user_id}, {"$set": update_data})
+    
+    # Update driver link if changed
+    if data.driver_id and data.driver_id != user.get("driver_id"):
+        # Remove old link
+        if user.get("driver_id"):
+            await db.drivers_v2.update_one(
+                {"id": user["driver_id"]},
+                {"$set": {"user_id": None}}
+            )
+        # Add new link
+        await db.drivers_v2.update_one(
+            {"id": data.driver_id},
+            {"$set": {"user_id": user_id}}
+        )
+    
+    return {"success": True, "message": "Usuário atualizado com sucesso"}
+
+@users_router.post("/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: str,
+    new_password: Optional[str] = Body(None, embed=True),
+    current_user: dict = Depends(get_current_user)
+):
+    """Reset user password (manual or auto-generate)"""
+    import secrets
+    import string
+    
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    
+    # Permission checks
+    if current_user["role"] == UserRole.OPERATOR_ADMIN:
+        if user.get("operator_id") != current_user.get("operator_id"):
+            raise HTTPException(status_code=403, detail="Usuário não pertence ao seu operador")
+        if user.get("role") in [UserRole.PLATFORM_OWNER, UserRole.OPERATOR_ADMIN]:
+            raise HTTPException(status_code=403, detail="Não pode redefinir senha deste usuário")
+    elif current_user["role"] != UserRole.PLATFORM_OWNER:
+        raise HTTPException(status_code=403, detail="Permissão insuficiente")
+    
+    # Generate password if not provided
+    password = new_password
+    generated_password = None
+    if not password:
+        alphabet = string.ascii_letters + string.digits + "!@#$%"
+        password = ''.join(secrets.choice(alphabet) for _ in range(12))
+        generated_password = password
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {
+            "password_hash": hash_password(password),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    response = {
+        "success": True,
+        "message": "Senha redefinida com sucesso",
+        "email": user["email"]
+    }
+    
+    if generated_password:
+        response["password"] = generated_password
+        response["note"] = "Guarde esta nova senha! Ela não será mostrada novamente."
+    
+    return response
+
+@users_router.put("/{user_id}/status")
+async def toggle_user_status(
+    user_id: str,
+    status: str = Body(..., embed=True),
+    current_user: dict = Depends(get_current_user)
+):
+    """Activate or deactivate a user without deleting data"""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    
+    # Permission checks
+    if current_user["role"] == UserRole.OPERATOR_ADMIN:
+        if user.get("operator_id") != current_user.get("operator_id"):
+            raise HTTPException(status_code=403, detail="Usuário não pertence ao seu operador")
+        if user.get("role") in [UserRole.PLATFORM_OWNER, UserRole.OPERATOR_ADMIN]:
+            raise HTTPException(status_code=403, detail="Não pode alterar status deste usuário")
+    elif current_user["role"] != UserRole.PLATFORM_OWNER:
+        raise HTTPException(status_code=403, detail="Permissão insuficiente")
+    
+    if status not in ["active", "inactive"]:
+        raise HTTPException(status_code=400, detail="Status inválido")
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"status": status, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    return {"success": True, "message": f"Usuário {'ativado' if status == 'active' else 'desativado'} com sucesso"}
+
+@users_router.delete("/{user_id}")
+async def delete_user(
+    user_id: str,
+    confirm: bool = Query(False),
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a user permanently (requires confirmation)"""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    
+    # Cannot delete yourself
+    if user_id == current_user["user_id"]:
+        raise HTTPException(status_code=400, detail="Não pode deletar sua própria conta")
+    
+    # Permission checks
+    if current_user["role"] == UserRole.OPERATOR_ADMIN:
+        if user.get("operator_id") != current_user.get("operator_id"):
+            raise HTTPException(status_code=403, detail="Usuário não pertence ao seu operador")
+        if user.get("role") in [UserRole.PLATFORM_OWNER, UserRole.OPERATOR_ADMIN]:
+            raise HTTPException(status_code=403, detail="Não pode deletar este tipo de usuário")
+    elif current_user["role"] != UserRole.PLATFORM_OWNER:
+        raise HTTPException(status_code=403, detail="Permissão insuficiente")
+    
+    # Check for linked data
+    warnings = []
+    if user.get("driver_id"):
+        trip_count = await db.trips.count_documents({"driver_id": user["driver_id"]})
+        if trip_count > 0:
+            warnings.append(f"Este usuário está vinculado a um motorista com {trip_count} viagens no histórico")
+    if user.get("client_company_id"):
+        trip_count = await db.trips.count_documents({"client_company_id": user["client_company_id"]})
+        if trip_count > 0:
+            warnings.append(f"Este usuário está vinculado a uma empresa com {trip_count} viagens no histórico")
+    
+    if warnings and not confirm:
+        return {
+            "success": False,
+            "requires_confirmation": True,
+            "warnings": warnings,
+            "message": "Deletar este usuário não apaga os dados históricos (viagens, motorista, empresa). O usuário apenas perderá acesso ao sistema. Confirme para prosseguir."
+        }
+    
+    # Remove user
+    await db.users.delete_one({"id": user_id})
+    
+    # Unlink from driver if applicable
+    if user.get("driver_id"):
+        await db.drivers_v2.update_one(
+            {"id": user["driver_id"]},
+            {"$set": {"user_id": None}}
+        )
+    
+    return {"success": True, "message": "Usuário deletado com sucesso. Dados históricos foram preservados."}
+
+@users_router.post("/generate-password")
+async def generate_secure_password(current_user: dict = Depends(get_current_user)):
+    """Generate a secure random password"""
+    import secrets
+    import string
+    
+    if current_user["role"] not in [UserRole.PLATFORM_OWNER, UserRole.OPERATOR_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permissão insuficiente")
+    
+    alphabet = string.ascii_letters + string.digits + "!@#$%"
+    password = ''.join(secrets.choice(alphabet) for _ in range(12))
+    
+    return {"password": password}
 
 # ==================== OPERATORS ROUTES ====================
 
@@ -359,6 +773,172 @@ async def update_client_company(
     
     await db.client_companies.update_one({"id": company_id}, {"$set": update_data})
     return {"message": "Empresa atualizada"}
+
+@companies_router.post("/{company_id}/create-credential")
+async def create_client_company_credential(
+    company_id: str,
+    email: str = Body(...),
+    current_user: dict = Depends(require_roles([UserRole.PLATFORM_OWNER, UserRole.OPERATOR_ADMIN]))
+):
+    """Create login credentials for a client company (admin only, no self-signup)"""
+    import secrets
+    import string
+    
+    # Get company
+    company = await db.client_companies.find_one({"id": company_id})
+    if not company:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    
+    # Check permissions
+    if current_user["role"] == UserRole.OPERATOR_ADMIN:
+        if company.get("operator_id") != current_user.get("operator_id"):
+            raise HTTPException(status_code=403, detail="Empresa pertence a outro operador")
+    
+    # Check if email already exists
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email já está em uso")
+    
+    # Generate secure password
+    alphabet = string.ascii_letters + string.digits
+    generated_password = ''.join(secrets.choice(alphabet) for _ in range(12))
+    
+    # Create user with client_admin role
+    user = {
+        "id": str(uuid.uuid4()),
+        "email": email,
+        "password_hash": hash_password(generated_password),
+        "name": company.get("trade_name") or company.get("legal_name"),
+        "role": UserRole.CLIENT_ADMIN,
+        "operator_id": company.get("operator_id"),
+        "client_company_id": company_id,
+        "phone": company.get("phone", ""),
+        "status": "active",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "last_login": None
+    }
+    await db.users.insert_one(user)
+    
+    return {
+        "success": True,
+        "message": "Credencial criada com sucesso",
+        "user_id": user["id"],
+        "email": email,
+        "password": generated_password,  # Show once for admin to copy
+        "note": "Guarde esta senha! Ela não será mostrada novamente."
+    }
+
+@companies_router.post("/{company_id}/reset-password")
+async def reset_client_company_password(
+    company_id: str,
+    current_user: dict = Depends(require_roles([UserRole.PLATFORM_OWNER, UserRole.OPERATOR_ADMIN]))
+):
+    """Reset password for a client company user"""
+    import secrets
+    import string
+    
+    # Get company
+    company = await db.client_companies.find_one({"id": company_id})
+    if not company:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    
+    # Check permissions
+    if current_user["role"] == UserRole.OPERATOR_ADMIN:
+        if company.get("operator_id") != current_user.get("operator_id"):
+            raise HTTPException(status_code=403, detail="Empresa pertence a outro operador")
+    
+    # Find user for this company
+    user = await db.users.find_one({"client_company_id": company_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="Nenhuma credencial encontrada para esta empresa")
+    
+    # Generate new password
+    alphabet = string.ascii_letters + string.digits
+    new_password = ''.join(secrets.choice(alphabet) for _ in range(12))
+    
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {
+            "password_hash": hash_password(new_password),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    return {
+        "success": True,
+        "message": "Senha redefinida com sucesso",
+        "email": user["email"],
+        "password": new_password,
+        "note": "Guarde esta nova senha! Ela não será mostrada novamente."
+    }
+
+@companies_router.put("/{company_id}/toggle-access")
+async def toggle_client_company_access(
+    company_id: str,
+    active: bool = Body(..., embed=True),
+    current_user: dict = Depends(require_roles([UserRole.PLATFORM_OWNER, UserRole.OPERATOR_ADMIN]))
+):
+    """Enable/disable login access for a client company"""
+    # Get company
+    company = await db.client_companies.find_one({"id": company_id})
+    if not company:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    
+    # Check permissions
+    if current_user["role"] == UserRole.OPERATOR_ADMIN:
+        if company.get("operator_id") != current_user.get("operator_id"):
+            raise HTTPException(status_code=403, detail="Empresa pertence a outro operador")
+    
+    # Find user for this company
+    user = await db.users.find_one({"client_company_id": company_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="Nenhuma credencial encontrada para esta empresa")
+    
+    new_status = "active" if active else "inactive"
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"status": new_status, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    return {
+        "success": True,
+        "message": f"Acesso {'ativado' if active else 'desativado'} com sucesso",
+        "status": new_status
+    }
+
+@companies_router.get("/{company_id}/credential")
+async def get_client_company_credential(
+    company_id: str,
+    current_user: dict = Depends(require_roles([UserRole.PLATFORM_OWNER, UserRole.OPERATOR_ADMIN]))
+):
+    """Get credential info for a client company (without password)"""
+    # Get company
+    company = await db.client_companies.find_one({"id": company_id})
+    if not company:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    
+    # Check permissions
+    if current_user["role"] == UserRole.OPERATOR_ADMIN:
+        if company.get("operator_id") != current_user.get("operator_id"):
+            raise HTTPException(status_code=403, detail="Empresa pertence a outro operador")
+    
+    # Find user for this company
+    user = await db.users.find_one({"client_company_id": company_id}, {"_id": 0, "password_hash": 0})
+    
+    if not user:
+        return {"has_credential": False, "user": None}
+    
+    return {
+        "has_credential": True,
+        "user": {
+            "id": user.get("id"),
+            "email": user.get("email"),
+            "status": user.get("status"),
+            "created_at": user.get("created_at"),
+            "last_login": user.get("last_login")
+        }
+    }
 
 # ==================== PASSENGERS ROUTES ====================
 
@@ -857,7 +1437,9 @@ async def list_trips(
     driver_id: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    scheduled: Optional[bool] = None
+    scheduled: Optional[bool] = None,
+    search: Optional[str] = None,
+    voucher: Optional[str] = None
 ):
     """List trips with tenant filtering"""
     query = filter_by_tenant(current_user, {})
@@ -877,6 +1459,19 @@ async def list_trips(
             query["created_at"]["$lte"] = end_date + "T23:59:59"
         else:
             query["created_at"] = {"$lte": end_date + "T23:59:59"}
+    
+    # Voucher search
+    if voucher:
+        query["voucher_number"] = {"$regex": voucher, "$options": "i"}
+    
+    # General search (requester name, driver name, passenger names)
+    if search:
+        query["$or"] = [
+            {"requester_name": {"$regex": search, "$options": "i"}},
+            {"driver_name": {"$regex": search, "$options": "i"}},
+            {"voucher_number": {"$regex": search, "$options": "i"}},
+            {"passengers.name": {"$regex": search, "$options": "i"}}
+        ]
     
     trips = await db.trips.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
     return trips
@@ -1141,6 +1736,37 @@ async def cancel_trip(
     result.pop("_id", None)
     
     await notify_clients("trip_status_update", result)
+    return result
+
+@trips_router.put("/{trip_id}/voucher")
+async def update_trip_voucher(
+    trip_id: str,
+    voucher_number: str = Body(..., embed=True),
+    current_user: dict = Depends(get_current_user)
+):
+    """Update trip voucher number (can be done after completion)"""
+    trip = await db.trips.find_one({"id": trip_id})
+    if not trip:
+        raise HTTPException(status_code=404, detail="Viagem não encontrada")
+    
+    # Check permissions
+    if current_user["role"] == UserRole.OPERATOR_ADMIN:
+        if trip.get("operator_id") != current_user.get("operator_id"):
+            raise HTTPException(status_code=403, detail="Viagem pertence a outro operador")
+    elif current_user["role"] in [UserRole.CLIENT_ADMIN, UserRole.CLIENT_USER]:
+        if trip.get("client_company_id") != current_user.get("client_company_id"):
+            raise HTTPException(status_code=403, detail="Viagem pertence a outra empresa")
+    
+    result = await db.trips.find_one_and_update(
+        {"id": trip_id},
+        {"$set": {
+            "voucher_number": voucher_number,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }},
+        return_document=True
+    )
+    result.pop("_id", None)
+    
     return result
 
 # ==================== LEGACY COMPATIBILITY ROUTES ====================
@@ -1920,9 +2546,12 @@ class ImportPreviewRow(BaseModel):
     passenger_city: str = ""
     pickup_time: str = ""
     destination: str = ""
+    matricula: str = ""
     is_valid: bool = True
     errors: List[str] = []
     passenger_id: Optional[str] = None  # If matched to existing passenger
+    is_duplicate: bool = False  # If duplicate in this import batch
+    existing_name: Optional[str] = None  # Name of existing matched passenger
 
 class ImportPreview(BaseModel):
     total_rows: int
@@ -1959,6 +2588,9 @@ async def preview_spreadsheet(
     current_user: dict = Depends(get_current_user)
 ):
     """Preview spreadsheet before importing - returns parsed data with validation"""
+    import pandas as pd
+    from openpyxl import load_workbook
+    
     if not file.filename.endswith(('.csv', '.xlsx', '.xls')):
         raise HTTPException(status_code=400, detail="Formato de arquivo não suportado. Use CSV ou Excel.")
     
@@ -1975,26 +2607,40 @@ async def preview_spreadsheet(
             rows = list(reader)
             columns = reader.fieldnames or []
         else:
-            # For Excel, we'd need openpyxl - fallback to CSV error
-            raise HTTPException(status_code=400, detail="Por enquanto, apenas CSV é suportado. Excel em breve.")
+            # Excel support using pandas
+            try:
+                df = pd.read_excel(io.BytesIO(contents), sheet_name=0, dtype=str)
+                df = df.fillna('')
+                columns = df.columns.tolist()
+                rows = df.to_dict('records')
+            except Exception as e:
+                logger.error(f"Excel parse error: {e}")
+                raise HTTPException(status_code=400, detail=f"Erro ao ler arquivo Excel: {str(e)}")
         
-        # Column mapping (flexible matching)
+        # Column mapping (flexible matching - handles messy real-world data)
         column_map = {
-            'name': ['name', 'nome', 'passenger', 'passageiro', 'funcionario', 'employee'],
-            'phone': ['phone', 'telefone', 'tel', 'celular', 'mobile'],
-            'address': ['address', 'endereco', 'endereço', 'rua', 'street'],
-            'neighborhood': ['neighborhood', 'bairro', 'district'],
-            'city': ['city', 'cidade', 'municipio'],
-            'time': ['time', 'hora', 'horario', 'horário', 'pickup_time', 'saida'],
-            'destination': ['destination', 'destino', 'dest', 'to'],
-            'matricula': ['matricula', 'matrícula', 'id', 'registration', 'code']
+            'name': ['name', 'nome', 'passenger', 'passageiro', 'funcionario', 'funcionário', 'employee', 'colaborador', 'empregado', 'nome do funcionário', 'nome funcionário', 'nome completo', 'full name'],
+            'phone': ['phone', 'telefone', 'tel', 'celular', 'mobile', 'fone', 'contato', 'contact', 'número', 'numero', 'cel', 'whatsapp', 'zap'],
+            'address': ['address', 'endereco', 'endereço', 'rua', 'street', 'logradouro', 'end', 'end.', 'endereço completo', 'endereço residencial'],
+            'neighborhood': ['neighborhood', 'bairro', 'district', 'setor', 'região', 'regiao', 'area', 'localidade'],
+            'city': ['city', 'cidade', 'municipio', 'município', 'mun', 'localidade'],
+            'time': ['time', 'hora', 'horario', 'horário', 'pickup_time', 'saida', 'saída', 'hora saída', 'hora saida', 'horário embarque', 'embarque', 'hora de saída'],
+            'destination': ['destination', 'destino', 'dest', 'to', 'local trabalho', 'empresa', 'company', 'local de trabalho', 'trabalho'],
+            'matricula': ['matricula', 'matrícula', 'id', 'registration', 'code', 'código', 'codigo', 're', 'registro', 'id funcionário', 'id funcionario']
         }
         
         def find_column(row, keys):
-            normalized = {k.lower().strip(): v for k, v in row.items() if k}
+            """Find column value with flexible matching"""
+            normalized = {k.lower().strip(): str(v).strip() if v else "" for k, v in row.items() if k}
+            # First try exact match
             for key in keys:
                 if key in normalized:
-                    return normalized[key].strip() if normalized[key] else ""
+                    return normalized[key]
+            # Then try partial match (column contains key)
+            for key in keys:
+                for col_name, val in normalized.items():
+                    if key in col_name:
+                        return val
             return ""
         
         # Get existing passengers for matching
@@ -2005,18 +2651,24 @@ async def preview_spreadsheet(
         
         def match_passenger(name, phone, matricula):
             """Try to match with existing passenger"""
+            matched_id = None
+            matched_name = None
             for p in existing_passengers:
-                if matricula and p.get("matricula") == matricula:
-                    return p["id"]
-                if phone and p.get("phone") == phone:
-                    return p["id"]
-                if name and p.get("name", "").lower() == name.lower():
-                    return p["id"]
-            return None
+                if matricula and p.get("matricula") and p.get("matricula") == matricula:
+                    return p["id"], p.get("name")
+                if phone and p.get("phone") and p.get("phone") == phone:
+                    matched_id = p["id"]
+                    matched_name = p.get("name")
+                if name and p.get("name", "").lower().strip() == name.lower().strip():
+                    matched_id = p["id"]
+                    matched_name = p.get("name")
+            return matched_id, matched_name
         
-        # Process rows
+        # Process rows and detect duplicates within this import
         preview_rows = []
         valid_count = 0
+        seen_names = {}  # Track names for duplicate detection
+        seen_phones = {}  # Track phones for duplicate detection
         
         for idx, row in enumerate(rows):
             name = find_column(row, column_map['name'])
@@ -2029,14 +2681,33 @@ async def preview_spreadsheet(
             matricula = find_column(row, column_map['matricula'])
             
             errors = []
+            is_duplicate = False
+            
+            # Validation
             if not name:
                 errors.append("Nome não encontrado")
+            
+            # Check for duplicates within this batch
+            name_key = name.lower().strip() if name else ""
+            phone_key = phone.strip() if phone else ""
+            
+            if name_key and name_key in seen_names:
+                is_duplicate = True
+                errors.append(f"Duplicado (linha {seen_names[name_key]})")
+            elif phone_key and phone_key in seen_phones:
+                is_duplicate = True
+                errors.append(f"Telefone duplicado (linha {seen_phones[phone_key]})")
+            
+            if name_key:
+                seen_names[name_key] = idx + 2
+            if phone_key:
+                seen_phones[phone_key] = idx + 2
             
             is_valid = len(errors) == 0
             if is_valid:
                 valid_count += 1
             
-            passenger_id = match_passenger(name, phone, matricula)
+            passenger_id, existing_name = match_passenger(name, phone, matricula)
             
             preview_rows.append(ImportPreviewRow(
                 row_num=idx + 2,  # +2 for header and 0-index
@@ -2047,9 +2718,12 @@ async def preview_spreadsheet(
                 passenger_city=city,
                 pickup_time=time,
                 destination=destination,
+                matricula=matricula,
                 is_valid=is_valid,
                 errors=errors,
-                passenger_id=passenger_id
+                passenger_id=passenger_id,
+                is_duplicate=is_duplicate,
+                existing_name=existing_name
             ))
         
         return ImportPreview(
@@ -2074,7 +2748,7 @@ async def smart_trip_assembly(
     """
     Smart Trip Assembly Engine
     Groups passengers by city, neighborhood, time, and destination
-    Suggests optimal vehicle assignments based on capacity
+    Suggests optimal vehicle assignments based on actual vehicle registry capacities
     """
     
     # Get available drivers and vehicles
@@ -2089,6 +2763,9 @@ async def smart_trip_assembly(
         {"operator_id": operator_id, "status": "available"},
         {"_id": 0}
     ).to_list(100)
+    
+    # Sort vehicles by capacity for optimal assignment
+    available_vehicles.sort(key=lambda v: v.get("capacity", 4))
     
     # Group passengers by city + neighborhood + time + destination
     groups = {}
@@ -2115,24 +2792,40 @@ async def smart_trip_assembly(
     unassigned = []
     warnings = []
     driver_idx = 0
+    vehicle_idx = 0
     
     for key, group in groups.items():
         group_passengers = group['passengers']
         group_size = len(group_passengers)
         
-        # Determine vehicle type based on passenger count
-        if group_size <= 4:
-            vehicle_type = VehicleType.CAR
-            capacity = 4
-        elif group_size <= 6:
-            vehicle_type = VehicleType.VAN
-            capacity = 6
-        elif group_size <= 15:
-            vehicle_type = VehicleType.MINIBUS
-            capacity = 15
-        else:
-            vehicle_type = VehicleType.BUS
-            capacity = 40
+        # Find best vehicle from registry based on actual capacity
+        selected_vehicle = None
+        capacity = 4  # Default fallback
+        vehicle_type = VehicleType.CAR
+        
+        # Try to find best-fit vehicle from registry
+        for v in available_vehicles[vehicle_idx:]:
+            v_capacity = v.get("capacity", 4)
+            if v_capacity >= min(group_size, 6):  # Don't use bus for small groups
+                selected_vehicle = v
+                capacity = v_capacity
+                vehicle_type = v.get("vehicle_type", VehicleType.CAR)
+                break
+        
+        # Fallback to default capacities if no suitable vehicle in registry
+        if not selected_vehicle:
+            if group_size <= 4:
+                vehicle_type = VehicleType.CAR
+                capacity = 4
+            elif group_size <= 6:
+                vehicle_type = VehicleType.VAN
+                capacity = 6
+            elif group_size <= 15:
+                vehicle_type = VehicleType.MINIBUS
+                capacity = 15
+            else:
+                vehicle_type = VehicleType.BUS
+                capacity = 40
         
         # Split into multiple trips if needed
         for i in range(0, group_size, capacity):
@@ -2413,7 +3106,7 @@ async def export_trips_report(
             "ID", "Data Criação", "Empresa", "Solicitante", "Passageiro Principal",
             "Qtd Passageiros", "Origem", "Destino", "Status", "Agendado",
             "Data Agendamento", "Hora", "Motorista", "Tel Motorista",
-            "Tipo Veículo", "Motivo Cancelamento"
+            "Tipo Veículo", "Voucher", "Motivo Cancelamento"
         ])
         
         for trip in trips:
@@ -2435,6 +3128,7 @@ async def export_trips_report(
                 trip.get("driver_name", ""),
                 trip.get("driver_phone", ""),
                 trip.get("vehicle_type", ""),
+                trip.get("voucher_number", ""),
                 trip.get("cancellation_reason", "")
             ])
         
@@ -2547,6 +3241,7 @@ async def export_passengers_report(
 # ==================== INCLUDE ROUTERS ====================
 
 app.include_router(auth_router)
+app.include_router(users_router)
 app.include_router(operators_router)
 app.include_router(companies_router)
 app.include_router(passengers_router)

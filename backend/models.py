@@ -330,6 +330,9 @@ class Trip(BaseModel):
     driver_notes: str = ""
     incidents: List[dict] = []
     proof_photos: List[str] = []
+    
+    # Voucher tracking
+    voucher_number: str = ""  # Optional voucher/reference number
 
 class TripCreate(BaseModel):
     client_company_id: str

@@ -29,7 +29,8 @@ import {
   Clock,
   CalendarIcon,
   Building,
-  Navigation
+  Navigation,
+  LogIn
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -129,8 +130,8 @@ export default function PassengerPortal() {
 
   // Add passenger
   const addPassenger = () => {
-    if (additionalPassengers.length >= 3) {
-      toast.error("Máximo de 4 passageiros por táxi");
+    if (additionalPassengers.length >= 5) {
+      toast.error("Máximo de 6 passageiros por veículo");
       return;
     }
     setAdditionalPassengers([...additionalPassengers, { matricula: "", full_name: "", address: "", phone: "", found: false }]);
@@ -272,14 +273,13 @@ export default function PassengerPortal() {
               Acompanhar
             </Button>
             <Button 
-              variant="ghost" 
               size="sm"
-              className="text-white/80 hover:text-white hover:bg-white/10"
-              onClick={() => navigate('/admin-control')}
-              data-testid="admin-link"
+              className="bg-white/20 hover:bg-white/30 text-white border-0"
+              onClick={() => navigate('/login')}
+              data-testid="login-link"
             >
-              <Shield className="w-4 h-4 mr-1" />
-              Admin
+              <LogIn className="w-4 h-4 mr-1" />
+              Entrar
             </Button>
           </div>
         </div>
@@ -370,14 +370,14 @@ export default function PassengerPortal() {
                   <div className="flex items-center gap-2">
                     <Users className="w-5 h-5 text-[#1e3a5f]" />
                     <Label className="font-semibold text-[#1e3a5f]">Passageiros Adicionais</Label>
-                    <Badge variant="secondary" className="ml-2">{totalPassengers}/4</Badge>
+                    <Badge variant="secondary" className="ml-2">{totalPassengers}/6</Badge>
                   </div>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={addPassenger}
-                    disabled={additionalPassengers.length >= 3}
+                    disabled={additionalPassengers.length >= 5}
                     className="border-[#1e3a5f]/20 text-[#1e3a5f]"
                     data-testid="add-passenger-btn"
                   >
@@ -442,7 +442,7 @@ export default function PassengerPortal() {
                     className={originType === "fixar" ? "flex-1 btn-navy" : "flex-1"}
                     data-testid="origin-fixar-btn"
                   >
-                    FIXAR
+                    Empresa
                   </Button>
                   <Button
                     type="button"

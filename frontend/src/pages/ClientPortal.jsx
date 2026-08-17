@@ -20,7 +20,7 @@ import {
 import { 
   Car, Building2, Users, Clock, Phone, MapPin, History, 
   Loader2, LogOut, RefreshCw, Calendar, Download, Search,
-  CheckCircle2, XCircle, AlertCircle
+  CheckCircle2, XCircle, AlertCircle, Receipt
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -101,7 +101,8 @@ export default function ClientPortal() {
       const matchesSearch = 
         t.requester_name?.toLowerCase().includes(search) ||
         t.passengers?.some(p => p.name?.toLowerCase().includes(search)) ||
-        t.driver_name?.toLowerCase().includes(search);
+        t.driver_name?.toLowerCase().includes(search) ||
+        t.voucher_number?.toLowerCase().includes(search); // Search by voucher number
       if (!matchesSearch) return false;
     }
     if (startDate && t.created_at < startDate) return false;
@@ -294,6 +295,7 @@ export default function ClientPortal() {
                         <TableHead>Passageiro</TableHead>
                         <TableHead>Destino</TableHead>
                         <TableHead>Motorista</TableHead>
+                        <TableHead>Voucher</TableHead>
                         <TableHead>Status</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -320,6 +322,14 @@ export default function ClientPortal() {
                                     </a>
                                   )}
                                 </div>
+                              ) : '-'}
+                            </TableCell>
+                            <TableCell>
+                              {trip.voucher_number ? (
+                                <Badge variant="outline" className="font-mono text-xs">
+                                  <Receipt className="w-3 h-3 mr-1" />
+                                  {trip.voucher_number}
+                                </Badge>
                               ) : '-'}
                             </TableCell>
                             <TableCell>
@@ -354,9 +364,17 @@ function TripCard({ trip }) {
             <p className="text-xs text-slate-500">+{trip.passenger_count - 1} passageiros</p>
           )}
         </div>
-        <Badge className={STATUS_COLORS[trip.status]}>
-          {STATUS_LABELS[trip.status]}
-        </Badge>
+        <div className="flex items-center gap-2">
+          {trip.voucher_number && (
+            <Badge variant="outline" className="font-mono text-xs">
+              <Receipt className="w-3 h-3 mr-1" />
+              {trip.voucher_number}
+            </Badge>
+          )}
+          <Badge className={STATUS_COLORS[trip.status]}>
+            {STATUS_LABELS[trip.status]}
+          </Badge>
+        </div>
       </div>
       
       <div className="grid grid-cols-2 gap-3 text-sm">
