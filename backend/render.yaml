@@ -1,0 +1,25 @@
+# render.yaml
+# Arquivo de configuraÃ§Ã£o para deploy automÃ¡tico do backend ARC Transporte no Render.
+# Basta subir este arquivo na raiz do repositÃ³rio do backend (mesma pasta do server.py)
+# e conectar o repositÃ³rio no painel do Render (New + > Blueprint).
+
+services:
+  - type: web
+    name: arc-transporte-backend
+    env: python
+    region: oregon # pode trocar para outra regiÃ£o se preferir
+    plan: free
+    branch: main # ajuste para o nome da sua branch principal, se for diferente
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn server:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: MONGO_URL
+        sync: false # vocÃª vai colar a connection string do MongoDB Atlas manualmente no painel do Render
+      - key: DB_NAME
+        value: arc_transporte
+      - key: SECRET_KEY
+        sync: false # gere uma chave secreta forte e cole manualmente no painel (NUNCA no cÃ³digo)
+      - key: CORS_ORIGINS
+        sync: false # ex: https://arc-transporte.vercel.app (URL do seu frontend em produÃ§Ã£o)
+      - key: PYTHON_VERSION
+        value: 3.11.0
