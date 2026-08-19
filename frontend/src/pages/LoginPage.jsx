@@ -6,7 +6,21 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Lock, Loader2, Mail, Car, Truck, AlertCircle } from "lucide-react";
+import { Lock, Loader2, Mail, AlertCircle } from "lucide-react";
+
+// Centralized helper: where should each role land after login?
+// - platform_owner (ARC Admin MASTER) -> Platform Dashboard (master admin panel)
+// - operator_admin -> Operator Management Dashboard
+// - driver -> Driver Portal
+// - client_user / client_admin -> Solicitar TÃ¡xi screen
+//   (client_admin will additionally see a button there to open /portal)
+function getHomeRouteForRole(role) {
+  if (role === 'platform_owner') return '/platform';
+  if (role === 'operator_admin') return '/admin';
+  if (role === 'driver') return '/driver';
+  if (role === 'client_admin' || role === 'client_user') return '/solicitar';
+  return '/login';
+}
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -37,23 +51,16 @@ export default function LoginPage() {
       const user = await login(email, password);
       toast.success(`Bem-vindo, ${user.name}!`);
       
-      // Check if there was a saved destination
+      // Check if there was a saved destination (user tried to open a specific
+      // page before being asked to log in)
       const from = location.state?.from?.pathname;
       if (from && from !== '/login' && from !== '/') {
         navigate(from, { replace: true });
         return;
       }
       
-      // Redirect based on role
-      if (user.role === 'platform_owner') {
-        navigate('/platform', { replace: true });
-      } else if (user.role === 'operator_admin') {
-        navigate('/admin', { replace: true });
-      } else if (user.role === 'driver') {
-        navigate('/driver', { replace: true });
-      } else {
-        navigate('/portal', { replace: true });
-      }
+      // Otherwise redirect to the role-appropriate home screen
+      navigate(getHomeRouteForRole(user.role), { replace: true });
     } catch (error) {
       toast.error(error.response?.data?.detail || "Erro ao fazer login");
     } finally {
@@ -66,12 +73,11 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-[#1e3a5f] text-white rounded-2xl mb-4 shadow-lg">
-            <Truck className="w-8 h-8" />
-          </div>
-          <h1 className="text-2xl font-bold text-[#1e3a5f] font-['Manrope']">
-            ARC Transporte
-          </h1>
+          <img
+            src="/arc-logo.png"
+            alt="ARC Transporte"
+            className="h-20 w-auto mx-auto mb-4 drop-shadow-sm"
+          />
           <p className="text-slate-500 text-sm mt-1">
             Sistema de Gestão de Transporte
           </p>
@@ -126,7 +132,7 @@ export default function LoginPage() {
                   <Input
                     id="password"
                     type="password"
-                    placeholder="••••••••"
+                    placeholder="Digite sua senha"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="pl-10 h-12"
@@ -152,22 +158,11 @@ export default function LoginPage() {
                 )}
               </Button>
             </form>
-
-            <div className="mt-6 pt-6 border-t border-slate-100">
-              <Button
-                variant="ghost"
-                className="w-full text-slate-500 hover:text-[#1e3a5f]"
-                onClick={() => navigate("/solicitar")}
-              >
-                <Car className="w-4 h-4 mr-2" />
-                Solicitar Táxi (sem login)
-              </Button>
-            </div>
           </CardContent>
         </Card>
 
         <p className="text-center text-xs text-slate-400 mt-6">
-          © 2024 ARC Transporte. Todos os direitos reservados.
+          © 2024 ARC Transporte e locações. Todos os direitos reservados.
         </p>
       </div>
     </div>

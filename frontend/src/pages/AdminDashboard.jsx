@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import axios from "axios";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,10 +31,10 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { 
-  Car, Lock, LogOut, Clock, CheckCircle2, Flag, Users, MapPin, Loader2,
-  AlertCircle, RefreshCw, LayoutDashboard, Bell, Phone, User, Upload,
+  Car, LogOut, Clock, CheckCircle2, Flag, Users, MapPin, Loader2,
+  AlertCircle, RefreshCw, Bell, Phone, User, Upload,
   FileSpreadsheet, Download, CalendarIcon, Building, Navigation, Edit2,
-  UserCog, Truck
+  UserCog, Truck, ArrowLeft
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -47,11 +48,15 @@ const STATUS_CONFIG = {
   cancelado: { label: "Cancelado", icon: AlertCircle, className: "status-cancelado", borderColor: "border-l-red-400" }
 };
 
+// NOTE: This screen used to have its OWN separate password gate (isAuthenticated,
+// handleLogin calling /api/admin/verify), completely independent from the main
+// login system. That was redundant: this route ("/admin-control") is already
+// protected in App.js so that ONLY platform_owner and operator_admin (ARC staff /
+// the Owner) can even reach this component. The extra password prompt has been
+// removed so Owners/Admins go straight in without being asked twice.
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [password, setPassword] = useState("");
-  const [verifying, setVerifying] = useState(false);
+  const { user, logout, token } = useAuth();
   const [activeTab, setActiveTab] = useState("requests");
   
   // Requests
@@ -92,12 +97,26 @@ export default function AdminDashboard() {
   const audioRef = useRef(null);
   const previousRequestCount = useRef(0);
 
+  const authHeaders = useCallback(() => (token ? { Authorization: `Bearer ${token}` } : {}), [token]);
+
+  // Where the "Voltar ao Painel" button should send the user back to,
+  // depending on their role. Platform Owner goes back to Platform Control,
+  // ARC staff (operator_admin) goes back to the new ARC Management dashboard.
+  const getBackRoute = () => {
+    if (user?.role === 'platform_owner') return '/platform';
+    if (user?.role === 'operator_admin') return '/admin';
+    return '/login';
+  };
+
+  const handleBackToPanel = () => {
+    navigate(getBackRoute());
+  };
+
   // Fetch requests
   const fetchRequests = useCallback(async () => {
-    if (!isAuthenticated) return;
     setLoading(true);
     try {
-      const response = await axios.get(`${API}/requests`);
+      const response = await axios.get(`${API}/requests`, { headers: authHeaders() });
       const allRequests = response.data;
       const pendingRequests = allRequests.filter(r => r.status === "aguardando");
       if (pendingRequests.length > previousRequestCount.current && previousRequestCount.current > 0) {
@@ -111,25 +130,23 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated]);
+  }, [authHeaders]);
 
   // Fetch drivers
   const fetchDrivers = useCallback(async () => {
-    if (!isAuthenticated) return;
     setLoadingDrivers(true);
     try {
-      const response = await axios.get(`${API}/drivers`);
+      const response = await axios.get(`${API}/drivers`, { headers: authHeaders() });
       setDrivers(response.data);
     } catch (error) {
       toast.error("Erro ao carregar motoristas");
     } finally {
       setLoadingDrivers(false);
     }
-  }, [isAuthenticated]);
+  }, [authHeaders]);
 
   // Fetch history
   const fetchHistory = useCallback(async () => {
-    if (!isAuthenticated) return;
     setHistoryLoading(true);
     try {
       let url = `${API}/requests/history`;
@@ -137,14 +154,14 @@ export default function AdminDashboard() {
       if (startDate) params.append("start_date", format(startDate, "yyyy-MM-dd"));
       if (endDate) params.append("end_date", format(endDate, "yyyy-MM-dd"));
       if (params.toString()) url += `?${params.toString()}`;
-      const response = await axios.get(url);
+      const response = await axios.get(url, { headers: authHeaders() });
       setHistoryData(response.data);
     } catch (error) {
       toast.error("Erro ao carregar histórico");
     } finally {
       setHistoryLoading(false);
     }
-  }, [isAuthenticated, startDate, endDate]);
+  }, [authHeaders, startDate, endDate]);
 
   const playNotificationSound = () => {
     if (audioRef.current) {
@@ -153,30 +170,18 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setVerifying(true);
-    try {
-      await axios.post(`${API}/admin/verify`, { password });
-      setIsAuthenticated(true);
-      toast.success("Acesso autorizado");
-    } catch (error) {
-      toast.error("Senha incorreta");
-    } finally {
-      setVerifying(false);
-    }
-  };
-
+  // Real logout: clears the actual session (token) and sends the user back to
+  // the main login screen. This is different from "Voltar ao Painel" above,
+  // which just navigates back without ending the session.
   const handleLogout = () => {
-    setIsAuthenticated(false);
-    setPassword("");
-    setRequests([]);
+    logout();
+    navigate('/login');
   };
 
   // Update status
   const updateStatus = async (requestId, newStatus) => {
     try {
-      await axios.put(`${API}/requests/${requestId}/status`, { status: newStatus });
+      await axios.put(`${API}/requests/${requestId}/status`, { status: newStatus }, { headers: authHeaders() });
       toast.success(`Status atualizado: ${STATUS_CONFIG[newStatus].label}`);
       fetchRequests();
     } catch (error) {
@@ -219,18 +224,18 @@ export default function AdminDashboard() {
         driver_id: driverId,
         driver_name: driverName,
         driver_phone: driverPhone
-      });
+      }, { headers: authHeaders() });
       
       // Also update status to confirmado if still aguardando
       if (selectedRequest.status === "aguardando") {
-        await axios.put(`${API}/requests/${selectedRequest.id}/status`, { status: "confirmado" });
+        await axios.put(`${API}/requests/${selectedRequest.id}/status`, { status: "confirmado" }, { headers: authHeaders() });
       }
       
       toast.success("Motorista designado com sucesso");
       setDriverModalOpen(false);
       fetchRequests();
     } catch (error) {
-      toast.error("Erro ao designar motorista");
+      toast.error(error.response?.data?.detail || "Erro ao designar motorista");
     } finally {
       setAssigningDriver(false);
     }
@@ -256,7 +261,7 @@ export default function AdminDashboard() {
       await axios.put(`${API}/requests/${selectedRequest.id}/schedule`, {
         scheduled_date: format(editDate, "yyyy-MM-dd"),
         scheduled_time: editTime
-      });
+      }, { headers: authHeaders() });
       toast.success("Agendamento atualizado");
       setEditScheduleOpen(false);
       fetchRequests();
@@ -282,7 +287,7 @@ export default function AdminDashboard() {
         : `${API}/employees/upload-csv?replace=${replaceAll}`;
       
       const response = await axios.post(endpoint, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' }
       });
       
       toast.success(response.data.message);
@@ -329,21 +334,20 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchRequests();
-      fetchDrivers();
-      const eventSource = new EventSource(`${API}/requests/stream/events`);
-      eventSource.onmessage = () => fetchRequests();
-      const interval = setInterval(fetchRequests, 10000);
-      return () => { eventSource.close(); clearInterval(interval); };
-    }
-  }, [isAuthenticated, fetchRequests, fetchDrivers]);
+    fetchRequests();
+    fetchDrivers();
+    const eventSource = new EventSource(`${API}/requests/stream/events`);
+    eventSource.onmessage = () => fetchRequests();
+    const interval = setInterval(fetchRequests, 10000);
+    return () => { eventSource.close(); clearInterval(interval); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
-    if (isAuthenticated && activeTab === "history") {
+    if (activeTab === "history") {
       fetchHistory();
     }
-  }, [isAuthenticated, activeTab, fetchHistory]);
+  }, [activeTab, fetchHistory]);
 
   // Filter requests
   const filteredRequests = requests.filter(req => {
@@ -373,40 +377,6 @@ export default function AdminDashboard() {
     } catch { return `${request.scheduled_date} às ${request.scheduled_time}`; }
   };
 
-  // Login screen
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <audio ref={audioRef} preload="auto">
-          <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleQsVKo7c77+FSg0AJI7d+M2ZVyEZMpHk+cuNXSgcLI7g98B+VykeMJPj98R/VScaMYzi98B5TxsbNo7h9rxvQhUZOJHj9rlpPRQWOI7e9LJfNA8TMo3c8qpZLw0TL4nY76FTKw0SLYbU7JlNJQsRKoPS6JNHIAkQKH/P5IxCGwgOJXvL4IU8FgYNI3bH3H42EgYMIHHD2Hc0EAULHm2/1XEuDQQKG2q70W0pCQMJGWa3zWklBwIIF2O0yWUiBgEHFV+wxGEfBAEGE1yswV0cAgAFEVmorFoZAQAED1WlqFYWAAADDlKiplMUAAACC0+fpFARAAABC0ycok0PAAABCUWZN0sMAAAACEOXNEkLAAAABz+UMEYJ" type="audio/wav" />
-        </audio>
-        <Card className="w-full max-w-md border-0 shadow-[0_8px_30px_rgba(30,58,95,0.15)]">
-          <CardHeader className="text-center pb-2">
-            <div className="mx-auto bg-[#1e3a5f] text-white w-16 h-16 rounded-2xl flex items-center justify-center mb-4">
-              <Lock className="w-8 h-8" />
-            </div>
-            <CardTitle className="text-2xl font-['Manrope'] text-[#1e3a5f]">ARC Control</CardTitle>
-            <p className="text-sm text-slate-500 mt-1">Painel Administrativo</p>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <Label>Senha de Acesso</Label>
-                <Input type="password" placeholder="Digite a senha" value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1 h-12" />
-              </div>
-              <Button type="submit" disabled={verifying || !password} className="w-full h-12 btn-navy">
-                {verifying ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verificando...</> : "Entrar"}
-              </Button>
-            </form>
-            <div className="mt-6 text-center">
-              <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="text-slate-500">Voltar</Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-slate-100">
       <audio ref={audioRef} preload="auto">
@@ -416,13 +386,32 @@ export default function AdminDashboard() {
       <header className="sticky top-0 z-50 bg-[#1e3a5f] text-white shadow-lg">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-white/10 p-2 rounded-lg"><LayoutDashboard className="w-6 h-6" /></div>
+            <div className="bg-white/95 px-3 py-1.5 rounded-lg shadow-sm">
+              <img src="/arc-logo.png" alt="ARC Transporte" className="h-7 w-auto" />
+            </div>
             <div>
               <h1 className="font-bold text-lg font-['Manrope']">ARC Control</h1>
               <p className="text-xs text-white/70">Painel Administrativo</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <Badge className="bg-white/20 text-white border-0 hidden sm:flex">
+              <User className="w-3 h-3 mr-1" />
+              {user?.name || "Admin"}
+            </Badge>
+            {/* NEW: lets the Owner / ARC Admin return to whichever dashboard
+                they came from (Platform Control or ARC Management), instead
+                of being stuck here or having to fully log out. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleBackToPanel}
+              className="text-white/80 hover:text-white hover:bg-white/10"
+              data-testid="back-to-panel-btn"
+            >
+              <ArrowLeft className="w-4 h-4 mr-1" />
+              Voltar ao Painel
+            </Button>
             <Button variant="ghost" size="sm" onClick={fetchRequests} className="text-white/80 hover:text-white hover:bg-white/10">
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </Button>
@@ -516,13 +505,13 @@ export default function AdminDashboard() {
                             </div>
                             <div className="flex gap-2">
                               {request.status === "aguardando" && (
-                                <Button onClick={() => openDriverModal(request)} className="btn-navy text-sm">
+                                <Button onClick={() => openDriverModal(request)} className="btn-navy text-sm" data-testid="accept-assign-btn">
                                   <CheckCircle2 className="w-4 h-4 mr-1" />Aceitar e Designar
                                 </Button>
                               )}
                               {request.status === "confirmado" && (
                                 <>
-                                  <Button variant="outline" size="sm" onClick={() => openDriverModal(request)} className="text-[#1e3a5f]">
+                                  <Button variant="outline" size="sm" onClick={() => openDriverModal(request)} className="text-[#1e3a5f]" data-testid="edit-driver-btn">
                                     <Edit2 className="w-4 h-4 mr-1" />Editar Motorista
                                   </Button>
                                   <Button onClick={() => updateStatus(request.id, "finalizado")} variant="outline" className="border-emerald-300 text-emerald-700 hover:bg-emerald-50">
@@ -784,7 +773,7 @@ export default function AdminDashboard() {
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setDriverModalOpen(false)}>Cancelar</Button>
-            <Button onClick={handleAssignDriver} disabled={assigningDriver} className="btn-navy">
+            <Button onClick={handleAssignDriver} disabled={assigningDriver} className="btn-navy" data-testid="confirm-assign-driver-btn">
               {assigningDriver ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Designando...</> : "Confirmar e Aceitar"}
             </Button>
           </DialogFooter>

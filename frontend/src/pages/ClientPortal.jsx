@@ -8,7 +8,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -18,9 +26,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { 
-  Car, Building2, Users, Clock, Phone, MapPin, History, 
+  Car, Users, Clock, Phone, MapPin, History, 
   Loader2, LogOut, RefreshCw, Calendar, Download, Search,
-  CheckCircle2, XCircle, AlertCircle, Receipt
+  CheckCircle2, XCircle, AlertCircle, Receipt, Plus, Edit2, UserCog
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -52,10 +60,21 @@ export default function ClientPortal() {
   const [company, setCompany] = useState(null);
   const [activeTab, setActiveTab] = useState("active");
   
-  // Filters
+  // Filters (history tab)
   const [searchTerm, setSearchTerm] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+
+  // Passengers (client's own company roster)
+  const [passengers, setPassengers] = useState([]);
+  const [passengerSearch, setPassengerSearch] = useState("");
+  const [showPassengerModal, setShowPassengerModal] = useState(false);
+  const [editingPassenger, setEditingPassenger] = useState(null);
+  const [passengerSaving, setPassengerSaving] = useState(false);
+  const [passengerForm, setPassengerForm] = useState({
+    matricula: "", name: "", phone: "", email: "",
+    address: "", neighborhood: "", city: "", pickup_point: "", notes: ""
+  });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -71,6 +90,15 @@ export default function ClientPortal() {
       // Fetch trips
       const tripsRes = await axios.get(`${API}/trips`, { headers });
       setTrips(tripsRes.data);
+
+      // Fetch passengers belonging to this company only
+      if (user?.client_company_id) {
+        const passengersRes = await axios.get(
+          `${API}/passengers?client_company_id=${user.client_company_id}`,
+          { headers }
+        );
+        setPassengers(passengersRes.data);
+      }
     } catch (error) {
       console.error("Fetch error:", error);
       toast.error("Erro ao carregar dados");
@@ -87,6 +115,80 @@ export default function ClientPortal() {
     logout();
     navigate('/login');
   };
+
+  // ==================== Passenger CRUD (scoped to own company) ====================
+
+  const resetPassengerForm = () => {
+    setPassengerForm({
+      matricula: "", name: "", phone: "", email: "",
+      address: "", neighborhood: "", city: "", pickup_point: "", notes: ""
+    });
+    setEditingPassenger(null);
+  };
+
+  const openNewPassengerModal = () => {
+    resetPassengerForm();
+    setShowPassengerModal(true);
+  };
+
+  const openEditPassengerModal = (p) => {
+    setPassengerForm({
+      matricula: p.matricula || "",
+      name: p.name || "",
+      phone: p.phone || "",
+      email: p.email || "",
+      address: p.address || "",
+      neighborhood: p.neighborhood || "",
+      city: p.city || "",
+      pickup_point: p.pickup_point || "",
+      notes: p.notes || ""
+    });
+    setEditingPassenger(p);
+    setShowPassengerModal(true);
+  };
+
+  const handleSavePassenger = async () => {
+    if (!passengerForm.name.trim()) {
+      toast.error("Nome é obrigatório");
+      return;
+    }
+    if (!user?.client_company_id) {
+      toast.error("Não foi possível identificar sua empresa");
+      return;
+    }
+
+    setPassengerSaving(true);
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const payload = {
+        ...passengerForm,
+        client_company_id: user.client_company_id
+      };
+
+      if (editingPassenger) {
+        await axios.put(`${API}/passengers/${editingPassenger.id}`, payload, { headers });
+        toast.success("Passageiro atualizado!");
+      } else {
+        await axios.post(`${API}/passengers`, payload, { headers });
+        toast.success("Passageiro cadastrado!");
+      }
+
+      setShowPassengerModal(false);
+      resetPassengerForm();
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao salvar passageiro");
+    } finally {
+      setPassengerSaving(false);
+    }
+  };
+
+  const filteredPassengers = passengers.filter(p =>
+    !passengerSearch ||
+    p.name?.toLowerCase().includes(passengerSearch.toLowerCase()) ||
+    p.matricula?.toLowerCase().includes(passengerSearch.toLowerCase()) ||
+    p.phone?.includes(passengerSearch)
+  );
 
   // Filter trips
   const activeTrips = trips.filter(t => 
@@ -132,8 +234,8 @@ export default function ClientPortal() {
       <header className="sticky top-0 z-50 bg-[#1e3a5f] text-white shadow-lg">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-white/10 p-2 rounded-lg">
-              <Building2 className="w-6 h-6" />
+            <div className="bg-white/95 px-3 py-1.5 rounded-lg shadow-sm">
+              <img src="/arc-logo.png" alt="ARC Transporte" className="h-7 w-auto" />
             </div>
             <div>
               <h1 className="font-bold text-lg font-['Manrope']">Portal da Empresa</h1>
@@ -144,6 +246,16 @@ export default function ClientPortal() {
             <Badge className="bg-white/20 text-white border-0 hidden sm:flex">
               {user?.name}
             </Badge>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => navigate('/solicitar')}
+              className="text-white/80 hover:text-white hover:bg-white/10"
+              data-testid="back-to-request-btn"
+            >
+              <Car className="w-4 h-4 mr-1" />
+              Solicitar Táxi
+            </Button>
             <Button 
               variant="ghost" 
               size="sm" 
@@ -218,6 +330,7 @@ export default function ClientPortal() {
           <TabsList className="mb-4">
             <TabsTrigger value="active">Viagens Ativas ({activeTrips.length})</TabsTrigger>
             <TabsTrigger value="history">Histórico</TabsTrigger>
+            <TabsTrigger value="passengers">Passageiros ({passengers.length})</TabsTrigger>
           </TabsList>
 
           <TabsContent value="active">
@@ -233,7 +346,7 @@ export default function ClientPortal() {
                     <p className="text-slate-500">Nenhuma viagem ativa no momento</p>
                     <Button 
                       className="mt-4 btn-navy"
-                      onClick={() => navigate('/')}
+                      onClick={() => navigate('/solicitar')}
                     >
                       Solicitar Táxi
                     </Button>
@@ -346,8 +459,135 @@ export default function ClientPortal() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* Passengers Tab - scoped to this client's own company */}
+          <TabsContent value="passengers">
+            <Card className="border-0 shadow-sm">
+              <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <UserCog className="w-5 h-5 text-[#1e3a5f]" />
+                    Passageiros da Empresa
+                  </CardTitle>
+                  <CardDescription>
+                    Cadastre e gerencie os funcionários que podem solicitar transporte
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Input
+                      placeholder="Buscar..."
+                      value={passengerSearch}
+                      onChange={(e) => setPassengerSearch(e.target.value)}
+                      className="pl-9 w-48"
+                    />
+                  </div>
+                  <Button onClick={openNewPassengerModal} className="btn-navy">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Novo Passageiro
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Matrícula</TableHead>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>Telefone</TableHead>
+                      <TableHead>Endereço</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredPassengers.map((passenger) => (
+                      <TableRow key={passenger.id}>
+                        <TableCell className="font-mono">{passenger.matricula || "-"}</TableCell>
+                        <TableCell className="font-medium">{passenger.name}</TableCell>
+                        <TableCell>{passenger.phone || "-"}</TableCell>
+                        <TableCell className="max-w-[220px] truncate">{passenger.address || "-"}</TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" onClick={() => openEditPassengerModal(passenger)} title="Editar">
+                            <Edit2 className="w-4 h-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {filteredPassengers.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-8 text-slate-500">
+                          Nenhum passageiro cadastrado
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </main>
+
+      {/* New / Edit Passenger Modal */}
+      <Dialog open={showPassengerModal} onOpenChange={(open) => { setShowPassengerModal(open); if (!open) resetPassengerForm(); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingPassenger ? 'Editar Passageiro' : 'Novo Passageiro'}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Matrícula</Label>
+                <Input value={passengerForm.matricula} onChange={(e) => setPassengerForm({...passengerForm, matricula: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <Label>Nome *</Label>
+                <Input value={passengerForm.name} onChange={(e) => setPassengerForm({...passengerForm, name: e.target.value})} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Telefone</Label>
+                <Input value={passengerForm.phone} onChange={(e) => setPassengerForm({...passengerForm, phone: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <Label>Email</Label>
+                <Input type="email" value={passengerForm.email} onChange={(e) => setPassengerForm({...passengerForm, email: e.target.value})} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Endereço</Label>
+              <Input value={passengerForm.address} onChange={(e) => setPassengerForm({...passengerForm, address: e.target.value})} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Bairro</Label>
+                <Input value={passengerForm.neighborhood} onChange={(e) => setPassengerForm({...passengerForm, neighborhood: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <Label>Cidade</Label>
+                <Input value={passengerForm.city} onChange={(e) => setPassengerForm({...passengerForm, city: e.target.value})} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Ponto de Coleta</Label>
+              <Input value={passengerForm.pickup_point} onChange={(e) => setPassengerForm({...passengerForm, pickup_point: e.target.value})} placeholder="Ex: Portaria principal" />
+            </div>
+            <div className="space-y-2">
+              <Label>Observações</Label>
+              <Textarea value={passengerForm.notes} onChange={(e) => setPassengerForm({...passengerForm, notes: e.target.value})} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPassengerModal(false)}>Cancelar</Button>
+            <Button onClick={handleSavePassenger} disabled={passengerSaving} className="btn-navy">
+              {passengerSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              {editingPassenger ? 'Salvar' : 'Criar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

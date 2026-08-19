@@ -19,6 +19,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -38,11 +48,20 @@ import {
   Loader2, RefreshCw, Phone, Mail, MapPin, Edit2, Trash2, Search,
   Upload, Download, FileSpreadsheet, UserCog, Calendar, Clock, User,
   Key, Copy, RotateCcw, ShieldCheck, ShieldOff, Clipboard, Route,
-  Receipt, History
+  Receipt, History, UserPlus, Eye, EyeOff, Briefcase, IdCard
 } from "lucide-react";
 import ManualTripAssembly from "@/components/ManualTripAssembly";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+// Roles that count as "internal ARC staff" vs "client" for the Users tab
+const ROLE_LABELS = {
+  platform_owner: "Proprietário da Plataforma",
+  operator_admin: "Funcionário ARC (Admin)",
+  client_admin: "Cliente - Administrador",
+  client_user: "Cliente - Usuário",
+  driver: "Motorista"
+};
 
 export default function OperatorAdminDashboard() {
   const navigate = useNavigate();
@@ -57,6 +76,7 @@ export default function OperatorAdminDashboard() {
   const [drivers, setDrivers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [trips, setTrips] = useState([]);
+  const [users, setUsers] = useState([]);
   
   // Stats
   const [stats, setStats] = useState({ companies: 0, passengers: 0, drivers: 0, vehicles: 0, trips: 0 });
@@ -70,6 +90,8 @@ export default function OperatorAdminDashboard() {
   const [showCredentialModal, setShowCredentialModal] = useState(false);
   const [showManualAssembly, setShowManualAssembly] = useState(false);
   const [showVoucherModal, setShowVoucherModal] = useState(false);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [showDeleteUserConfirm, setShowDeleteUserConfirm] = useState(false);
   
   // Voucher editing
   const [editingTrip, setEditingTrip] = useState(null);
@@ -85,6 +107,18 @@ export default function OperatorAdminDashboard() {
   // Edit mode
   const [editingItem, setEditingItem] = useState(null);
   const [saving, setSaving] = useState(false);
+  
+  // Users tab state
+  const [editingUser, setEditingUser] = useState(null);
+  const [userSaving, setUserSaving] = useState(false);
+  const [userDeleting, setUserDeleting] = useState(false);
+  const [userToDelete, setUserToDelete] = useState(null);
+  const [showUserPassword, setShowUserPassword] = useState(false);
+  const [userGeneratedPassword, setUserGeneratedPassword] = useState("");
+  const [userForm, setUserForm] = useState({
+    name: "", email: "", phone: "", password: "",
+    role: "client_admin", client_company_id: ""
+  });
   
   // Upload
   const [uploadType, setUploadType] = useState("passengers");
@@ -121,12 +155,13 @@ export default function OperatorAdminDashboard() {
     try {
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       
-      const [companiesRes, passengersRes, driversRes, vehiclesRes, tripsRes] = await Promise.all([
+      const [companiesRes, passengersRes, driversRes, vehiclesRes, tripsRes, usersRes] = await Promise.all([
         axios.get(`${API}/companies`, { headers }),
         axios.get(`${API}/passengers`, { headers }),
         axios.get(`${API}/drivers?active_only=false`, { headers }),
         axios.get(`${API}/vehicles`, { headers }),
-        axios.get(`${API}/trips`, { headers })
+        axios.get(`${API}/trips`, { headers }),
+        axios.get(`${API}/users`, { headers }).catch(() => ({ data: [] }))
       ]);
       
       setCompanies(companiesRes.data);
@@ -134,6 +169,7 @@ export default function OperatorAdminDashboard() {
       setDrivers(driversRes.data);
       setVehicles(vehiclesRes.data);
       setTrips(tripsRes.data);
+      setUsers(usersRes.data);
       
       setStats({
         companies: companiesRes.data.length,
@@ -489,17 +525,17 @@ export default function OperatorAdminDashboard() {
       
       if (editingItem) {
         await axios.put(`${API}/vehicles/${editingItem.id}`, data, { headers });
-        toast.success("Veículo atualizado!");
+        toast.success("Veí­culos atualizado!");
       } else {
         await axios.post(`${API}/vehicles`, data, { headers });
-        toast.success("Veículo criado!");
+        toast.success("Veí­culos criado!");
       }
       
       setShowVehicleModal(false);
       resetVehicleForm();
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Erro ao salvar veículo");
+      toast.error(error.response?.data?.detail || "Erro ao salvar Veí­culos");
     } finally {
       setSaving(false);
     }
@@ -528,6 +564,160 @@ export default function OperatorAdminDashboard() {
     setEditingItem(vehicle);
     setShowVehicleModal(true);
   };
+
+  // ==================== USERS TAB (Cliente x Funcionário ARC) ====================
+
+  const resetUserForm = () => {
+    setUserForm({
+      name: "", email: "", phone: "", password: "",
+      role: "client_admin", client_company_id: selectedCompanyId || ""
+    });
+    setEditingUser(null);
+    setUserGeneratedPassword("");
+  };
+
+  const openNewUserModal = () => {
+    resetUserForm();
+    setShowUserModal(true);
+  };
+
+  const openEditUserModal = (u) => {
+    setUserForm({
+      name: u.name || "",
+      email: u.email || "",
+      phone: u.phone || "",
+      password: "",
+      role: u.role || "client_admin",
+      client_company_id: u.client_company_id || ""
+    });
+    setEditingUser(u);
+    setUserGeneratedPassword("");
+    setShowUserModal(true);
+  };
+
+  const handleSaveUser = async () => {
+    if (!userForm.name.trim()) {
+      toast.error("Nome é obrigatório");
+      return;
+    }
+    if (!userForm.email.trim()) {
+      toast.error("Email é obrigatório");
+      return;
+    }
+    if (userForm.role === "client_admin" && !userForm.client_company_id) {
+      toast.error("Selecione a empresa cliente para este usuário");
+      return;
+    }
+
+    setUserSaving(true);
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      if (editingUser) {
+        // Update existing user (email, name, phone, role, company)
+        const payload = {
+          name: userForm.name,
+          email: userForm.email,
+          phone: userForm.phone,
+          role: userForm.role,
+          client_company_id: userForm.role === "client_admin" || userForm.role === "client_user"
+            ? userForm.client_company_id
+            : null
+        };
+        await axios.put(`${API}/users/${editingUser.id}`, payload, { headers });
+        toast.success("Usuário atualizado com sucesso!");
+      } else {
+        // Create new user
+        const payload = {
+          name: userForm.name,
+          email: userForm.email,
+          phone: userForm.phone,
+          role: userForm.role,
+          operator_id: user?.operator_id || "arc-transporte-001"
+        };
+        if (userForm.role === "client_admin" || userForm.role === "client_user") {
+          payload.client_company_id = userForm.client_company_id;
+        }
+        if (userForm.password.trim()) {
+          payload.password = userForm.password;
+        }
+        const res = await axios.post(`${API}/users`, payload, { headers });
+        if (res.data?.password) {
+          setUserGeneratedPassword(res.data.password);
+          toast.success("Usuário criado! Copie a senha antes de fechar.");
+        } else {
+          toast.success("Usuário criado com sucesso!");
+        }
+      }
+
+      fetchData();
+      if (!userGeneratedPassword) {
+        setShowUserModal(false);
+        resetUserForm();
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao salvar usuário");
+    } finally {
+      setUserSaving(false);
+    }
+  };
+
+  const handleResetUserPassword = async (targetUser, newPassword = "") => {
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const payload = newPassword.trim() ? { new_password: newPassword } : {};
+      const res = await axios.post(`${API}/users/${targetUser.id}/reset-password`, payload, { headers });
+      if (res.data?.password) {
+        setUserGeneratedPassword(res.data.password);
+      }
+      toast.success("Senha redefinida com sucesso!");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao redefinir senha");
+    }
+  };
+
+  const confirmDeleteUser = (u) => {
+    setUserToDelete(u);
+    setShowDeleteUserConfirm(true);
+  };
+
+  const handleDeleteUser = async () => {
+    if (!userToDelete) return;
+    setUserDeleting(true);
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      await axios.delete(`${API}/users/${userToDelete.id}`, { headers, params: { confirm: true } });
+      toast.success("Usuário excluído com sucesso!");
+      setShowDeleteUserConfirm(false);
+      setUserToDelete(null);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao excluir usuário");
+    } finally {
+      setUserDeleting(false);
+    }
+  };
+
+  const handleToggleUserStatus = async (u) => {
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const newStatus = u.status === "active" ? "inactive" : "active";
+      await axios.put(`${API}/users/${u.id}/status`, { status: newStatus }, { headers });
+      toast.success(`Usuário ${newStatus === "active" ? "ativado" : "desativado"} com sucesso!`);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao alterar status");
+    }
+  };
+
+  const isClientRole = (role) => role === "client_admin" || role === "client_user";
+  const isStaffRole = (role) => role === "operator_admin" || role === "platform_owner";
+
+  const filteredUsers = users.filter(u =>
+    !searchTerm ||
+    u.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    u.email?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   // CSV Upload
   const handleCSVUpload = async (event) => {
@@ -613,8 +803,8 @@ export default function OperatorAdminDashboard() {
       <header className="sticky top-0 z-50 bg-[#1e3a5f] text-white shadow-lg">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-white/10 p-2 rounded-lg">
-              <LayoutDashboard className="w-6 h-6" />
+            <div className="bg-white/95 px-3 py-1.5 rounded-lg shadow-sm">
+              <img src="/arc-logo.png" alt="ARC Transporte" className="h-7 w-auto" />
             </div>
             <div>
               <h1 className="font-bold text-lg font-['Manrope']">Gestão de Operador</h1>
@@ -694,7 +884,7 @@ export default function OperatorAdminDashboard() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-500">Veículos</p>
+                  <p className="text-sm text-slate-500">Veí­culos</p>
                   <p className="text-2xl font-bold text-[#1e3a5f]">{stats.vehicles}</p>
                 </div>
                 <Truck className="w-8 h-8 text-purple-500/30" />
@@ -721,8 +911,9 @@ export default function OperatorAdminDashboard() {
               <TabsTrigger value="companies">Empresas</TabsTrigger>
               <TabsTrigger value="passengers">Passageiros</TabsTrigger>
               <TabsTrigger value="drivers">Motoristas</TabsTrigger>
-              <TabsTrigger value="vehicles">Veículos</TabsTrigger>
+              <TabsTrigger value="vehicles">Veí­culos</TabsTrigger>
               <TabsTrigger value="trips">Viagens</TabsTrigger>
+              <TabsTrigger value="users">Usuários</TabsTrigger>
               <TabsTrigger value="assembly">Montagem Manual</TabsTrigger>
             </TabsList>
             
@@ -752,7 +943,7 @@ export default function OperatorAdminDashboard() {
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
                   <CardTitle>Empresas Cliente</CardTitle>
-                  <CardDescription>Gerencie as empresas que utilizam o serviço</CardDescription>
+                  <CardDescription>Gerencie as empresas que utilizam o serviÃ§o</CardDescription>
                 </div>
                 <Button onClick={() => { resetCompanyForm(); setShowCompanyModal(true); }} className="btn-navy">
                   <Plus className="w-4 h-4 mr-2" />
@@ -838,7 +1029,7 @@ export default function OperatorAdminDashboard() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Matrícula</TableHead>
+                      <TableHead>MatrÃ­cula</TableHead>
                       <TableHead>Nome</TableHead>
                       <TableHead>Telefone</TableHead>
                       <TableHead>Endereço</TableHead>
@@ -916,10 +1107,10 @@ export default function OperatorAdminDashboard() {
                             driver.status === 'on_trip' ? 'bg-blue-100 text-blue-700' :
                             'bg-slate-100 text-slate-600'
                           }>
-                            {driver.status === 'available' ? 'Disponível' :
+                            {driver.status === 'available' ? 'Disponí­vel' :
                              driver.status === 'on_trip' ? 'Em viagem' :
                              driver.status === 'vacation' ? 'Férias' :
-                             driver.status === 'day_off' ? 'Folga' : 'Indisponível'}
+                             driver.status === 'day_off' ? 'Folga' : 'indisponí­vel'}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
@@ -947,12 +1138,12 @@ export default function OperatorAdminDashboard() {
             <Card className="border-0 shadow-sm">
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
-                  <CardTitle>Veículos</CardTitle>
-                  <CardDescription>Gerencie a frota de veículos</CardDescription>
+                  <CardTitle>Veí­culos</CardTitle>
+                  <CardDescription>Gerencie a frota de Veí­culos</CardDescription>
                 </div>
                 <Button onClick={() => { resetVehicleForm(); setShowVehicleModal(true); }} className="btn-navy">
                   <Plus className="w-4 h-4 mr-2" />
-                  Novo Veículo
+                  Novo Veí­culo
                 </Button>
               </CardHeader>
               <CardContent>
@@ -977,7 +1168,7 @@ export default function OperatorAdminDashboard() {
                           <Badge variant="outline">
                             {vehicle.vehicle_type === 'car' ? 'Carro' :
                              vehicle.vehicle_type === 'van' ? 'Van' :
-                             vehicle.vehicle_type === 'bus' ? 'Ônibus' :
+                             vehicle.vehicle_type === 'bus' ? 'Ã”nibus' :
                              vehicle.vehicle_type === 'taxi' ? 'Táxi' : vehicle.vehicle_type}
                           </Badge>
                         </TableCell>
@@ -989,7 +1180,7 @@ export default function OperatorAdminDashboard() {
                             vehicle.status === 'on_trip' ? 'bg-blue-100 text-blue-700' :
                             'bg-slate-100 text-slate-600'
                           }>
-                            {vehicle.status === 'available' ? 'Disponível' :
+                            {vehicle.status === 'available' ? 'Disponí­vel' :
                              vehicle.status === 'on_trip' ? 'Em uso' :
                              vehicle.status === 'maintenance' ? 'Manutenção' : 'Inativo'}
                           </Badge>
@@ -1004,7 +1195,7 @@ export default function OperatorAdminDashboard() {
                     {vehicles.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={7} className="text-center py-8 text-slate-500">
-                          Nenhum veículo cadastrado
+                          Nenhum Veí­culos cadastrado
                         </TableCell>
                       </TableRow>
                     )}
@@ -1035,7 +1226,7 @@ export default function OperatorAdminDashboard() {
                       <TableHead>Solicitante</TableHead>
                       <TableHead>Passageiros</TableHead>
                       <TableHead>Motorista</TableHead>
-                      <TableHead>Veículo</TableHead>
+                      <TableHead>Veí­culos</TableHead>
                       <TableHead>Voucher</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
@@ -1127,6 +1318,114 @@ export default function OperatorAdminDashboard() {
             </Card>
           </TabsContent>
 
+          {/* Users Tab - Cliente x Funcionário ARC */}
+          <TabsContent value="users">
+            <Card className="border-0 shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <IdCard className="w-5 h-5 text-[#1e3a5f]" />
+                    Usuários do Sistema
+                  </CardTitle>
+                  <CardDescription>
+                    Cadastre e gerencie os logins: escolha se o usuário é um cliente (solicitante)
+                    ou um funcionário da ARC, para que ele acesse o painel correto.
+                  </CardDescription>
+                </div>
+                <Button onClick={openNewUserModal} className="btn-navy">
+                  <UserPlus className="w-4 h-4 mr-2" />
+                  Novo Usuário
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Empresa / VÃ­nculo</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredUsers.map((u) => (
+                      <TableRow key={u.id}>
+                        <TableCell className="font-medium">{u.name}</TableCell>
+                        <TableCell>{u.email}</TableCell>
+                        <TableCell>
+                          <Badge className={
+                            isStaffRole(u.role)
+                              ? 'bg-blue-100 text-blue-700 border-0'
+                              : isClientRole(u.role)
+                              ? 'bg-emerald-100 text-emerald-700 border-0'
+                              : 'bg-slate-100 text-slate-600 border-0'
+                          }>
+                            {isStaffRole(u.role) ? (
+                              <Briefcase className="w-3 h-3 mr-1 inline" />
+                            ) : (
+                              <User className="w-3 h-3 mr-1 inline" />
+                            )}
+                            {ROLE_LABELS[u.role] || u.role}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {u.client_company_name || u.operator_name || "-"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={u.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}>
+                            {u.status === 'active' ? 'Ativo' : 'Inativo'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" onClick={() => openEditUserModal(u)} title="Editar">
+                            <Edit2 className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleResetUserPassword(u)}
+                            title="Redefinir Senha (gera senha automática)"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleToggleUserStatus(u)}
+                            title={u.status === 'active' ? 'Desativar' : 'Ativar'}
+                          >
+                            {u.status === 'active' ? (
+                              <ShieldOff className="w-4 h-4" />
+                            ) : (
+                              <ShieldCheck className="w-4 h-4" />
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => confirmDeleteUser(u)}
+                            title="Excluir"
+                          >
+                            <Trash2 className="w-4 h-4 text-red-500" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {filteredUsers.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-slate-500">
+                          Nenhum usuário cadastrado
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           {/* Manual Assembly Tab */}
           <TabsContent value="assembly">
             <Card className="border-0 shadow-sm">
@@ -1136,7 +1435,7 @@ export default function OperatorAdminDashboard() {
                   Montagem Manual de Viagens
                 </CardTitle>
                 <CardDescription>
-                  Importe uma planilha e monte viagens manualmente, atribuindo passageiros a veículos específicos
+                  Importe uma planilha e monte viagens manualmente, atribuindo passageiros a Veí­culos especÃ­ficos
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -1245,7 +1544,7 @@ export default function OperatorAdminDashboard() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Matrícula</Label>
+                <Label>MatrÃ­cula</Label>
                 <Input value={passengerForm.matricula} onChange={(e) => setPassengerForm({...passengerForm, matricula: e.target.value})} />
               </div>
               <div className="space-y-2">
@@ -1344,7 +1643,7 @@ export default function OperatorAdminDashboard() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Cidades Autorizadas (separar por vírgula)</Label>
+              <Label>Cidades Autorizadas (separar por vÃ­rgula)</Label>
               <Input value={driverForm.authorized_cities} onChange={(e) => setDriverForm({...driverForm, authorized_cities: e.target.value})} placeholder="Ex: São Paulo, Guarulhos, Campinas" />
             </div>
             <div className="space-y-2">
@@ -1366,7 +1665,7 @@ export default function OperatorAdminDashboard() {
       <Dialog open={showVehicleModal} onOpenChange={setShowVehicleModal}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editingItem ? 'Editar Veículo' : 'Novo Veículo'}</DialogTitle>
+            <DialogTitle>{editingItem ? 'Editar Veí­culos' : 'Novo Veí­culos'}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto">
             <div className="grid grid-cols-2 gap-4">
@@ -1383,7 +1682,7 @@ export default function OperatorAdminDashboard() {
                     <SelectItem value="taxi">Táxi</SelectItem>
                     <SelectItem value="van">Van</SelectItem>
                     <SelectItem value="minibus">Micro-ônibus</SelectItem>
-                    <SelectItem value="bus">Ônibus</SelectItem>
+                    <SelectItem value="bus">Ã”nibus</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1569,7 +1868,7 @@ export default function OperatorAdminDashboard() {
                     {generatedCredential.password}
                   </p>
                   <p className="text-xs text-amber-700 mt-2">
-                    ⚠️ Copie e envie esta senha ao cliente. Ela não será mostrada novamente!
+                    ⚠️ Copie e envie esta senha ao cliente. Ela não será mostrada novamente!
                   </p>
                 </div>
               )}
@@ -1597,7 +1896,7 @@ export default function OperatorAdminDashboard() {
               
               {generatedCredential.last_login && (
                 <p className="text-xs text-slate-500">
-                  Último login: {new Date(generatedCredential.last_login).toLocaleString('pt-BR')}
+                  Ãšltimo login: {new Date(generatedCredential.last_login).toLocaleString('pt-BR')}
                 </p>
               )}
               
@@ -1680,7 +1979,7 @@ export default function OperatorAdminDashboard() {
           </DialogHeader>
           <div className="py-4 space-y-4">
             <div className="space-y-2">
-              <Label>Número do Voucher</Label>
+              <Label>NÃºmero do Voucher</Label>
               <Input
                 placeholder="Ex: VCH-2024-001"
                 value={voucherNumber}
@@ -1716,6 +2015,130 @@ export default function OperatorAdminDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ============== New / Edit User Modal ============== */}
+      <Dialog open={showUserModal} onOpenChange={(open) => { setShowUserModal(open); if (!open) resetUserForm(); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <IdCard className="w-5 h-5 text-[#1e3a5f]" />
+              {editingUser ? 'Editar Usuário' : 'Novo Usuário'}
+            </DialogTitle>
+            <DialogDescription>
+              Defina se este usuário é um <strong>Cliente (solicitante)</strong> –” vai acessar o
+              portal de acompanhamento de viagens –” ou um <strong>Funcionário ARC</strong> –” vai
+              acessar o painel de gestão.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4 max-h-[65vh] overflow-y-auto">
+            <div className="space-y-2">
+              <Label>Tipo de Usuário *</Label>
+              <Select
+                value={userForm.role}
+                onValueChange={(v) => setUserForm({ ...userForm, role: v })}
+                disabled={!!editingUser && (editingUser.role === 'platform_owner')}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="client_admin">Cliente - Administrador (empresa solicitante)</SelectItem>
+                  <SelectItem value="client_user">Cliente - Usuário (empresa solicitante)</SelectItem>
+                  <SelectItem value="operator_admin">Funcionário ARC (equipe interna)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {(userForm.role === "client_admin" || userForm.role === "client_user") && (
+              <div className="space-y-2">
+                <Label>Empresa Cliente *</Label>
+                <Select
+                  value={userForm.client_company_id}
+                  onValueChange={(v) => setUserForm({ ...userForm, client_company_id: v })}
+                >
+                  <SelectTrigger><SelectValue placeholder="Selecione a empresa" /></SelectTrigger>
+                  <SelectContent>
+                    {companies.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.trade_name || c.legal_name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Nome *</Label>
+                <Input value={userForm.name} onChange={(e) => setUserForm({ ...userForm, name: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Telefone</Label>
+                <Input value={userForm.phone} onChange={(e) => setUserForm({ ...userForm, phone: e.target.value })} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Email *</Label>
+              <Input type="email" value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} />
+            </div>
+
+            {!editingUser && (
+              <div className="space-y-2">
+                <Label>Senha (deixe em branco para gerar automaticamente)</Label>
+                <div className="relative">
+                  <Input
+                    type={showUserPassword ? "text" : "password"}
+                    value={userForm.password}
+                    onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+                    placeholder="Senha de acesso"
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    onClick={() => setShowUserPassword(!showUserPassword)}
+                  >
+                    {showUserPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {userGeneratedPassword && (
+              <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <span className="text-sm font-mono text-amber-800">{userGeneratedPassword}</span>
+                <Button size="sm" variant="ghost" onClick={() => copyToClipboard(userGeneratedPassword)}>
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowUserModal(false)}>Cancelar</Button>
+            <Button onClick={handleSaveUser} disabled={userSaving} className="btn-navy">
+              {userSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              {editingUser ? 'Salvar' : 'Criar Usuário'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete user confirmation */}
+      <AlertDialog open={showDeleteUserConfirm} onOpenChange={setShowDeleteUserConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir usuário {userToDelete?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O login será removido, mas os dados históricos vinculados (viagens, motorista,
+              empresa) não serão apagados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteUser} disabled={userDeleting}>
+              {userDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirmar exclusão"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

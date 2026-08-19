@@ -236,20 +236,22 @@ async def list_users(
     current_user: dict = Depends(get_current_user),
     role: Optional[str] = None,
     status: Optional[str] = None,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    operator_id: Optional[str] = None
 ):
     """List users with permission scoping"""
     query = {}
     
     # Permission scoping
     if current_user["role"] == UserRole.PLATFORM_OWNER:
-        # Platform owner sees all users
-        pass
+        # Platform owner sees all users, but can filter by operator_id
+        if operator_id:
+            query["operator_id"] = operator_id
     elif current_user["role"] == UserRole.OPERATOR_ADMIN:
         # Operator admin sees only users within their operator
         query["operator_id"] = current_user.get("operator_id")
     else:
-        raise HTTPException(status_code=403, detail="Permissão insuficiente")
+        raise HTTPException(status_code=403, detail="PermissÃ£o insuficiente")
     
     # Filters
     if role:

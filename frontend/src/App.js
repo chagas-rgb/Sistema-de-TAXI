@@ -16,6 +16,17 @@ import OperatorAdminDashboard from "@/pages/OperatorAdminDashboard";
 import DriverPortal from "@/pages/DriverPortal";
 import ClientPortal from "@/pages/ClientPortal";
 
+// Centralized helper: where should each role land after login / at "/" ?
+function getHomeRouteForRole(role) {
+  if (role === 'platform_owner') return '/platform';
+  if (role === 'operator_admin') return '/admin';
+  if (role === 'driver') return '/driver';
+  // Both client_admin and client_user land on the "Solicitar TÃ¡xi" screen.
+  // client_admin additionally sees a button there to open the admin dashboard (/portal).
+  if (role === 'client_admin' || role === 'client_user') return '/solicitar';
+  return '/login';
+}
+
 // Protected Route Component - maintains session across navigation
 function ProtectedRoute({ children, allowedRoles = [] }) {
   const { user, loading, isAuthenticated } = useAuth();
@@ -35,11 +46,8 @@ function ProtectedRoute({ children, allowedRoles = [] }) {
   }
 
   if (allowedRoles.length > 0 && !allowedRoles.includes(user?.role)) {
-    // Redirect to appropriate dashboard based on role
-    if (user?.role === 'platform_owner') return <Navigate to="/platform" replace />;
-    if (user?.role === 'operator_admin') return <Navigate to="/admin" replace />;
-    if (user?.role === 'driver') return <Navigate to="/driver" replace />;
-    return <Navigate to="/portal" replace />;
+    // Redirect to appropriate home screen based on role
+    return <Navigate to={getHomeRouteForRole(user?.role)} replace />;
   }
 
   return children;
@@ -62,14 +70,8 @@ function RootRedirect() {
     return <Navigate to="/login" replace />;
   }
 
-  // If authenticated, redirect to appropriate dashboard
-  if (user?.role === 'platform_owner') return <Navigate to="/platform" replace />;
-  if (user?.role === 'operator_admin') return <Navigate to="/admin" replace />;
-  if (user?.role === 'driver') return <Navigate to="/driver" replace />;
-  if (user?.role === 'client_admin' || user?.role === 'client_user') return <Navigate to="/portal" replace />;
-  
-  // Fallback
-  return <Navigate to="/login" replace />;
+  // If authenticated, redirect to role-appropriate home screen
+  return <Navigate to={getHomeRouteForRole(user?.role)} replace />;
 }
 
 // Login route wrapper - redirects if already authenticated
@@ -85,20 +87,18 @@ function LoginRoute() {
     );
   }
 
-  // If already authenticated, redirect to appropriate dashboard
+  // If already authenticated, redirect to appropriate destination
   if (isAuthenticated) {
     const from = location.state?.from?.pathname;
-    
-    // If there's a saved destination, go there
+
+    // If there's a saved destination (e.g. user tried to open a specific page
+    // before being asked to log in), go there instead of the default home.
     if (from && from !== '/login' && from !== '/') {
       return <Navigate to={from} replace />;
     }
-    
-    // Otherwise, go to role-appropriate dashboard
-    if (user?.role === 'platform_owner') return <Navigate to="/platform" replace />;
-    if (user?.role === 'operator_admin') return <Navigate to="/admin" replace />;
-    if (user?.role === 'driver') return <Navigate to="/driver" replace />;
-    return <Navigate to="/portal" replace />;
+
+    // Otherwise, go to role-appropriate home screen
+    return <Navigate to={getHomeRouteForRole(user?.role)} replace />;
   }
 
   return <LoginPage />;
@@ -113,15 +113,34 @@ function AppRoutes() {
       {/* Auth Routes */}
       <Route path="/login" element={<LoginRoute />} />
       
-      {/* Public tracking routes (no auth required) */}
+      {/* Public tracking routes (no auth required) - these are read-only tracking
+          links shared after a trip is created, they do not allow creating new trips */}
       <Route path="/status/:requestId" element={<RequestStatus />} />
       <Route path="/acompanhamento" element={<TrackingPage />} />
       
-      {/* Legacy public taxi request form - accessible without login */}
-      <Route path="/solicitar" element={<PassengerPortal />} />
+      {/* Taxi request form - REQUIRES LOGIN so every request is linked to a
+          user profile and appears in their trip history. This is the default
+          landing screen for client_user and client_admin. */}
+      <Route 
+        path="/solicitar" 
+        element={
+          <ProtectedRoute allowedRoles={['client_admin', 'client_user', 'platform_owner', 'operator_admin']}>
+            <PassengerPortal />
+          </ProtectedRoute>
+        } 
+      />
       
-      {/* Legacy Admin (still works with password) */}
-      <Route path="/admin-control" element={<AdminDashboard />} />
+      {/* Legacy Admin (password-protected panel) - REQUIRES LOGIN as
+          platform_owner or operator_admin (ARC staff only). It can no longer
+          be reached directly by typing the URL without being authenticated. */}
+      <Route 
+        path="/admin-control" 
+        element={
+          <ProtectedRoute allowedRoles={['platform_owner', 'operator_admin']}>
+            <AdminDashboard />
+          </ProtectedRoute>
+        } 
+      />
       
       {/* Platform Owner Routes */}
       <Route 
@@ -141,7 +160,7 @@ function AppRoutes() {
         } 
       />
       
-      {/* Operator Admin Routes */}
+      {/* Operator Admin Routes (ARC staff only) */}
       <Route 
         path="/admin" 
         element={
@@ -161,11 +180,13 @@ function AppRoutes() {
         } 
       />
       
-      {/* Client Portal Routes */}
+      {/* Client Admin Dashboard (trip history/tracking for the client company).
+          Only client_admin (not client_user) can access this, reached via a
+          button inside the "Solicitar TÃ¡xi" screen. */}
       <Route 
         path="/portal" 
         element={
-          <ProtectedRoute allowedRoles={['client_admin', 'client_user', 'platform_owner', 'operator_admin']}>
+          <ProtectedRoute allowedRoles={['client_admin', 'platform_owner', 'operator_admin']}>
             <ClientPortal />
           </ProtectedRoute>
         } 

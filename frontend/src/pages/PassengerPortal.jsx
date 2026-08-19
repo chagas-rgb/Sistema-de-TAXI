@@ -1,5 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import axios from "axios";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -30,7 +31,8 @@ import {
   CalendarIcon,
   Building,
   Navigation,
-  LogIn
+  LogOut,
+  LayoutDashboard
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -39,11 +41,16 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 export default function PassengerPortal() {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   
   // Requester name
   const [requesterName, setRequesterName] = useState("");
+  
+  // The logged-in user's company name (if any). Used to auto-fill "Origem" when
+  // the "Empresa" option is selected, instead of the old hardcoded "FIXAR" text.
+  const companyName = user?.client_company_name || user?.operator_name || "";
   
   // Origin state
   const [originType, setOriginType] = useState("fixar"); // fixar, outro
@@ -71,10 +78,28 @@ export default function PassengerPortal() {
   // Default address checkbox
   const [useDefaultAddress, setUseDefaultAddress] = useState(true);
 
+  // Pre-fill requester name with the logged-in user's name (still editable)
+  useEffect(() => {
+    if (user?.name && !requesterName) {
+      setRequesterName(user.name);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  // When the logged-in user has a company associated (client_company_name) and
+  // "Origem" is set to "Empresa" (fixar), automatically use that company's name
+  // as the origin address instead of the old placeholder text "FIXAR".
+  useEffect(() => {
+    if (originType === "fixar") {
+      setOriginAddress(companyName || "FIXAR");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyName]);
+
   // Search main passenger
   const searchMainPassenger = useCallback(async () => {
     if (!mainMatricula.trim()) {
-      toast.error("Digite uma matrícula");
+      toast.error("Digite uma matri­cula");
       return;
     }
     
@@ -104,7 +129,7 @@ export default function PassengerPortal() {
   const searchAdditionalPassenger = async (index) => {
     const passenger = additionalPassengers[index];
     if (!passenger.matricula.trim()) {
-      toast.error("Digite uma matrícula");
+      toast.error("Digite uma matr­cula");
       return;
     }
     
@@ -153,7 +178,10 @@ export default function PassengerPortal() {
   const handleOriginTypeChange = (type) => {
     setOriginType(type);
     if (type === "fixar") {
-      setOriginAddress("FIXAR");
+      // Use the logged-in user's company name when available; otherwise fall
+      // back to the legacy "FIXAR" placeholder (e.g. for users with no
+      // company association, such as the platform owner).
+      setOriginAddress(companyName || "FIXAR");
     } else {
       setOriginAddress("");
     }
@@ -167,6 +195,11 @@ export default function PassengerPortal() {
     } else if (type === "outro") {
       setDestinationAddress("");
     }
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
   };
 
   // Submit request
@@ -236,16 +269,29 @@ export default function PassengerPortal() {
       };
       
       const response = await axios.post(`${API}/requests`, requestData);
+      const newRequestId = response.data.id;
+
       toast.success(isScheduled ? "Agendamento realizado com sucesso!" : "Solicitação enviada com sucesso!");
-      navigate(`/status/${response.data.id}`);
+
+      // FIX: Previously we called navigate() in the very same tick as
+      // toast.success(). The toast library (sonner) inserts/animates a DOM
+      // node at the same moment React unmounts this whole form to render the
+      // status page, and occasionally both try to remove the same DOM node,
+      // causing an uncaught "Failed to execute 'removeChild' on 'Node'"
+      // error that could freeze/crash the screen. Deferring the navigation
+      // to the next tick (setTimeout 0) lets the toast finish mounting first
+      // and avoids the DOM race condition.
+      setTimeout(() => {
+        navigate(`/status/${newRequestId}`);
+      }, 0);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Erro ao enviar solicitação");
-    } finally {
       setIsSubmitting(false);
     }
   };
 
   const totalPassengers = 1 + additionalPassengers.length;
+  const isClientAdmin = user?.role === 'client_admin';
 
   return (
     <div className="min-h-screen arc-bg-pattern">
@@ -253,15 +299,15 @@ export default function PassengerPortal() {
       <header className="sticky top-0 z-50 bg-[#1e3a5f] text-white shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-white/10 p-2 rounded-lg">
-              <Car className="w-6 h-6" strokeWidth={1.5} />
+            <div className="bg-white/95 px-3 py-1.5 rounded-lg shadow-sm">
+              <img src="/arc-logo.png" alt="ARC Transporte" className="h-7 w-auto" />
             </div>
             <div>
               <h1 className="font-bold text-lg tracking-tight font-['Manrope']">ARC Transporte</h1>
               <p className="text-xs text-white/70">Sistema de Táxi Corporativo</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             <Button 
               variant="ghost" 
               size="sm"
@@ -272,14 +318,30 @@ export default function PassengerPortal() {
               <Radio className="w-4 h-4 mr-1" />
               Acompanhar
             </Button>
+
+            {/* Only client_admin sees the button to open the full admin dashboard
+                (trip history, passenger registration, etc. at /portal) */}
+            {isClientAdmin && (
+              <Button 
+                size="sm"
+                className="bg-white/20 hover:bg-white/30 text-white border-0"
+                onClick={() => navigate('/portal')}
+                data-testid="admin-dashboard-link"
+              >
+                <LayoutDashboard className="w-4 h-4 mr-1" />
+                Painel Administrativo
+              </Button>
+            )}
+
             <Button 
+              variant="ghost" 
               size="sm"
-              className="bg-white/20 hover:bg-white/30 text-white border-0"
-              onClick={() => navigate('/login')}
-              data-testid="login-link"
+              className="text-white/80 hover:text-white hover:bg-white/10"
+              onClick={handleLogout}
+              data-testid="logout-link"
             >
-              <LogIn className="w-4 h-4 mr-1" />
-              Entrar
+              <LogOut className="w-4 h-4 mr-1" />
+              Sair
             </Button>
           </div>
         </div>
@@ -324,7 +386,7 @@ export default function PassengerPortal() {
                 
                 <div className="space-y-3">
                   <div>
-                    <Label className="text-sm text-slate-600">Matrícula</Label>
+                    <Label className="text-sm text-slate-600">Matri­cula</Label>
                     <div className="flex gap-2 mt-1">
                       <Input
                         data-testid="main-matricula-input"
@@ -406,7 +468,7 @@ export default function PassengerPortal() {
                         </div>
                         <div className="flex gap-2 mb-2">
                           <Input
-                            placeholder="Matrícula"
+                            placeholder="Matri­cula"
                             value={passenger.matricula}
                             onChange={(e) => updatePassengerMatricula(index, e.target.value)}
                             className="h-10"
@@ -454,6 +516,18 @@ export default function PassengerPortal() {
                     Outro
                   </Button>
                 </div>
+
+                {/* When "Empresa" is selected, show the actual company name of
+                    the logged-in user that will be sent as the origin,
+                    instead of silently sending the old placeholder "FIXAR". */}
+                {originType === "fixar" && (
+                  <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100 animate-slide-in">
+                    <p className="text-sm text-emerald-700 flex items-center gap-2">
+                      <MapPin className="w-4 h-4" />
+                      {originAddress}
+                    </p>
+                  </div>
+                )}
 
                 {originType === "outro" && (
                   <Input

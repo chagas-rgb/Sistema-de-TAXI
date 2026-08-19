@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -16,25 +15,59 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { 
-  Building2, Users, Car, Truck, Plus, Settings, LogOut, LayoutDashboard,
-  Loader2, RefreshCw, ChevronRight, Globe, Shield, UserCog, Activity
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Building2, Users, Car, Truck, Plus, LogOut, LayoutDashboard,
+  Loader2, RefreshCw, ChevronRight, Globe, Shield, Activity,
+  KeyRound, Trash2, Mail, Save, UserPlus, Copy, Eye, EyeOff, Settings
 } from "lucide-react";
 
 export default function PlatformDashboard() {
   const navigate = useNavigate();
   const { user, logout, authAxios, isPlatformOwner } = useAuth();
-  
+
   const [operators, setOperators] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ operators: 0, companies: 0, trips: 0, drivers: 0 });
-  
-  // New operator modal
+
+  // ============== New operator modal ==============
   const [showNewOperator, setShowNewOperator] = useState(false);
   const [newOperatorName, setNewOperatorName] = useState("");
   const [newOperatorEmail, setNewOperatorEmail] = useState("");
   const [newOperatorPhone, setNewOperatorPhone] = useState("");
+  const [newOperatorPassword, setNewOperatorPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [creating, setCreating] = useState(false);
+
+  // ============== Edit operator modal ==============
+  const [showEditOperator, setShowEditOperator] = useState(false);
+  const [selectedOperator, setSelectedOperator] = useState(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [savingOperator, setSavingOperator] = useState(false);
+
+  // Credential (login) management for the selected operator
+  const [credentialLoading, setCredentialLoading] = useState(false);
+  const [operatorUser, setOperatorUser] = useState(null); // existing operator_admin user, or null
+  const [credEmail, setCredEmail] = useState("");
+  const [credPassword, setCredPassword] = useState("");
+  const [showCredPassword, setShowCredPassword] = useState(false);
+  const [credSaving, setCredSaving] = useState(false);
+  const [generatedPassword, setGeneratedPassword] = useState("");
+
+  // Delete confirmation
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -45,7 +78,7 @@ export default function PlatformDashboard() {
         authAxios.get('/trips'),
         authAxios.get('/drivers?active_only=false')
       ]);
-      
+
       setOperators(operatorsRes.data);
       setStats({
         operators: operatorsRes.data.length,
@@ -68,31 +101,212 @@ export default function PlatformDashboard() {
     fetchData();
   }, [isPlatformOwner, navigate, fetchData]);
 
+  // ============== Create new operator + login credential ==============
   const handleCreateOperator = async () => {
     if (!newOperatorName.trim()) {
       toast.error("Nome do operador é obrigatório");
       return;
     }
+    if (!newOperatorEmail.trim()) {
+      toast.error("E-mail é obrigatório para criar o acesso de login");
+      return;
+    }
 
     setCreating(true);
     try {
-      await authAxios.post('/operators', {
+      // 1) Create the operator (company)
+      const operatorRes = await authAxios.post('/operators', {
         name: newOperatorName,
         trade_name: newOperatorName,
         email: newOperatorEmail,
         phone: newOperatorPhone
       });
-      toast.success("Operador criado com sucesso!");
+
+      const newOperator = operatorRes.data;
+
+      // 2) Create the login user (operator_admin) linked to this operator
+      const userPayload = {
+        email: newOperatorEmail,
+        name: newOperatorName,
+        role: "operator_admin",
+        operator_id: newOperator.id,
+        phone: newOperatorPhone
+      };
+      if (newOperatorPassword.trim()) {
+        userPayload.password = newOperatorPassword;
+      }
+
+      const userRes = await authAxios.post('/users', userPayload);
+
+      if (userRes.data?.password) {
+        toast.success(
+          `Operador criado! Senha gerada: ${userRes.data.password} (copie agora, não será mostrada de novo)`,
+          { duration: 15000 }
+        );
+      } else {
+        toast.success("Operador e login criados com sucesso!");
+      }
+
       setShowNewOperator(false);
       setNewOperatorName("");
       setNewOperatorEmail("");
       setNewOperatorPhone("");
+      setNewOperatorPassword("");
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Erro ao criar operador");
     } finally {
       setCreating(false);
     }
+  };
+
+  // ============== Open edit modal for an operator ==============
+  const openEditOperator = async (operator) => {
+    setSelectedOperator(operator);
+    setEditName(operator.name || "");
+    setEditEmail(operator.email || "");
+    setEditPhone(operator.phone || "");
+    setOperatorUser(null);
+    setCredEmail("");
+    setCredPassword("");
+    setGeneratedPassword("");
+    setShowEditOperator(true);
+
+    setCredentialLoading(true);
+    try {
+      const res = await authAxios.get('/users', {
+        params: { operator_id: operator.id, role: 'operator_admin' }
+      });
+      const existing = res.data?.[0] || null;
+      setOperatorUser(existing);
+      if (existing) {
+        setCredEmail(existing.email || "");
+      } else {
+        setCredEmail(operator.email || "");
+      }
+    } catch (error) {
+      toast.error("Erro ao carregar credenciais do operador");
+    } finally {
+      setCredentialLoading(false);
+    }
+  };
+
+  const handleSaveOperator = async () => {
+    if (!editName.trim()) {
+      toast.error("Nome é obrigatório");
+      return;
+    }
+    setSavingOperator(true);
+    try {
+      await authAxios.put(`/operators/${selectedOperator.id}`, {
+        name: editName,
+        trade_name: editName,
+        email: editEmail,
+        phone: editPhone
+      });
+      toast.success("Operador atualizado com sucesso!");
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao atualizar operador");
+    } finally {
+      setSavingOperator(false);
+    }
+  };
+
+  // ============== Create login credential (if none exists) ==============
+  const handleCreateCredential = async () => {
+    if (!credEmail.trim()) {
+      toast.error("Informe um e-mail para o login");
+      return;
+    }
+    setCredSaving(true);
+    try {
+      const payload = {
+        email: credEmail,
+        name: editName || selectedOperator.name,
+        role: "operator_admin",
+        operator_id: selectedOperator.id
+      };
+      if (credPassword.trim()) {
+        payload.password = credPassword;
+      }
+      const res = await authAxios.post('/users', payload);
+      if (res.data?.password) {
+        setGeneratedPassword(res.data.password);
+        toast.success("Credencial criada! Copie a senha antes de fechar.");
+      } else {
+        toast.success("Credencial criada com sucesso!");
+      }
+      // Refresh the operator user
+      const listRes = await authAxios.get('/users', {
+        params: { operator_id: selectedOperator.id, role: 'operator_admin' }
+      });
+      setOperatorUser(listRes.data?.[0] || null);
+      setCredPassword("");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao criar credencial");
+    } finally {
+      setCredSaving(false);
+    }
+  };
+
+  // ============== Update existing user's e-mail ==============
+  const handleUpdateCredentialEmail = async () => {
+    if (!operatorUser) return;
+    if (!credEmail.trim()) {
+      toast.error("E-mail não pode ficar vazio");
+      return;
+    }
+    setCredSaving(true);
+    try {
+      await authAxios.put(`/users/${operatorUser.id}`, { email: credEmail });
+      toast.success("E-mail de acesso atualizado!");
+      setOperatorUser({ ...operatorUser, email: credEmail });
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao atualizar e-mail");
+    } finally {
+      setCredSaving(false);
+    }
+  };
+
+  // ============== Reset password of existing user ==============
+  const handleResetPassword = async () => {
+    if (!operatorUser) return;
+    setCredSaving(true);
+    try {
+      const payload = credPassword.trim() ? { new_password: credPassword } : {};
+      const res = await authAxios.post(`/users/${operatorUser.id}/reset-password`, payload);
+      if (res.data?.password) {
+        setGeneratedPassword(res.data.password);
+      }
+      toast.success("Senha redefinida com sucesso!");
+      setCredPassword("");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao redefinir senha");
+    } finally {
+      setCredSaving(false);
+    }
+  };
+
+  // ============== Delete existing user (login access) ==============
+  const handleDeleteCredential = async () => {
+    if (!operatorUser) return;
+    setDeleting(true);
+    try {
+      await authAxios.delete(`/users/${operatorUser.id}`, { params: { confirm: true } });
+      toast.success("Acesso removido com sucesso!");
+      setOperatorUser(null);
+      setShowDeleteConfirm(false);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao remover acesso");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    toast.success("Copiado!");
   };
 
   const handleLogout = () => {
@@ -114,8 +328,8 @@ export default function PlatformDashboard() {
       <header className="sticky top-0 z-50 bg-gradient-to-r from-[#1e3a5f] to-[#2d4a6f] text-white shadow-lg">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-white/10 p-2 rounded-lg">
-              <Globe className="w-6 h-6" />
+            <div className="bg-white/95 px-3 py-1.5 rounded-lg shadow-sm">
+              <img src="/arc-logo.png" alt="ARC Transporte" className="h-7 w-auto" />
             </div>
             <div>
               <h1 className="font-bold text-lg font-['Manrope']">Platform Control</h1>
@@ -127,17 +341,17 @@ export default function PlatformDashboard() {
               <Shield className="w-3 h-3 mr-1" />
               {user?.name}
             </Badge>
-            <Button 
-              variant="ghost" 
-              size="sm" 
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={fetchData}
               className="text-white/80 hover:text-white hover:bg-white/10"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </Button>
-            <Button 
-              variant="ghost" 
-              size="sm" 
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={handleLogout}
               className="text-white/80 hover:text-white hover:bg-white/10"
             >
@@ -162,7 +376,7 @@ export default function PlatformDashboard() {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card className="border-0 shadow-sm bg-gradient-to-br from-emerald-50 to-white">
             <CardContent className="p-4 flex items-center justify-between">
               <div>
@@ -174,7 +388,7 @@ export default function PlatformDashboard() {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card className="border-0 shadow-sm bg-gradient-to-br from-amber-50 to-white">
             <CardContent className="p-4 flex items-center justify-between">
               <div>
@@ -186,7 +400,7 @@ export default function PlatformDashboard() {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card className="border-0 shadow-sm bg-gradient-to-br from-purple-50 to-white">
             <CardContent className="p-4 flex items-center justify-between">
               <div>
@@ -228,10 +442,10 @@ export default function PlatformDashboard() {
                   <div
                     key={operator.id}
                     className="flex items-center justify-between p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
-                    onClick={() => navigate(`/platform/operator/${operator.id}`)}
+                    onClick={() => openEditOperator(operator)}
                   >
                     <div className="flex items-center gap-4">
-                      <div 
+                      <div
                         className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold"
                         style={{ backgroundColor: operator.branding?.primary_color || '#1e3a5f' }}
                       >
@@ -245,9 +459,9 @@ export default function PlatformDashboard() {
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
-                      <Badge 
-                        className={operator.status === 'active' 
-                          ? 'bg-emerald-100 text-emerald-700 border-0' 
+                      <Badge
+                        className={operator.status === 'active'
+                          ? 'bg-emerald-100 text-emerald-700 border-0'
                           : 'bg-slate-100 text-slate-600 border-0'
                         }
                       >
@@ -263,10 +477,29 @@ export default function PlatformDashboard() {
         </Card>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-          <Card 
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+          {/* NEW: direct shortcut into the new ARC Management dashboard
+              (Companies / Passengers / Drivers / Vehicles / Trips / Users tabs) */}
+          <Card
+            className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+            onClick={() => navigate('/admin')}
+            data-testid="shortcut-gestao-arc"
+          >
+            <CardContent className="p-6 flex items-center gap-4">
+              <div className="bg-indigo-100 p-3 rounded-xl">
+                <Settings className="w-6 h-6 text-indigo-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-800">Gestão ARC</h3>
+                <p className="text-sm text-slate-500">Empresas, passageiros e usuários</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card
             className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
             onClick={() => navigate('/admin-control')}
+            data-testid="shortcut-arc-admin-legado"
           >
             <CardContent className="p-6 flex items-center gap-4">
               <div className="bg-[#1e3a5f]/10 p-3 rounded-xl">
@@ -278,10 +511,14 @@ export default function PlatformDashboard() {
               </div>
             </CardContent>
           </Card>
-          
-          <Card 
+
+          {/* FIX: this used to navigate('/') which, for a platform_owner, just
+              redirects right back to /platform (a no-op loop). Now it goes
+              straight to the taxi request screen. */}
+          <Card
             className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/solicitar')}
+            data-testid="shortcut-solicitar-taxi"
           >
             <CardContent className="p-6 flex items-center gap-4">
               <div className="bg-emerald-100 p-3 rounded-xl">
@@ -293,10 +530,11 @@ export default function PlatformDashboard() {
               </div>
             </CardContent>
           </Card>
-          
-          <Card 
+
+          <Card
             className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
             onClick={() => navigate('/acompanhamento')}
+            data-testid="shortcut-acompanhamento"
           >
             <CardContent className="p-6 flex items-center gap-4">
               <div className="bg-amber-100 p-3 rounded-xl">
@@ -311,7 +549,7 @@ export default function PlatformDashboard() {
         </div>
       </main>
 
-      {/* New Operator Dialog */}
+      {/* ============== New Operator Dialog ============== */}
       <Dialog open={showNewOperator} onOpenChange={setShowNewOperator}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -320,7 +558,7 @@ export default function PlatformDashboard() {
               Novo Operador
             </DialogTitle>
             <DialogDescription>
-              Cadastre uma nova empresa de transporte na plataforma
+              Cadastre uma nova empresa de transporte na plataforma. Um login de acesso será criado automaticamente.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -333,7 +571,7 @@ export default function PlatformDashboard() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Email</Label>
+              <Label>E-mail de login *</Label>
               <Input
                 type="email"
                 placeholder="contato@empresa.com"
@@ -348,6 +586,25 @@ export default function PlatformDashboard() {
                 value={newOperatorPhone}
                 onChange={(e) => setNewOperatorPhone(e.target.value)}
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Senha de acesso (deixe em branco para gerar automaticamente)</Label>
+              <div className="relative">
+                <Input
+                  type={showNewPassword ? "text" : "password"}
+                  placeholder="Senha para o operador entrar no sistema"
+                  value={newOperatorPassword}
+                  onChange={(e) => setNewOperatorPassword(e.target.value)}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                >
+                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
           </div>
           <DialogFooter className="gap-2">
@@ -367,6 +624,191 @@ export default function PlatformDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ============== Edit Operator Dialog ============== */}
+      <Dialog open={showEditOperator} onOpenChange={setShowEditOperator}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-[#1e3a5f] flex items-center gap-2">
+              <Building2 className="w-5 h-5" />
+              {selectedOperator?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Edite os dados do operador e gerencie o acesso de login.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-2">
+            {/* Operator basic data */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Dados do Operador</h4>
+              <div className="space-y-2">
+                <Label>Nome</Label>
+                <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>E-mail de contato</Label>
+                <Input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Telefone</Label>
+                <Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
+              </div>
+              <Button
+                onClick={handleSaveOperator}
+                disabled={savingOperator}
+                className="btn-navy w-full"
+              >
+                {savingOperator ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4 mr-2" />
+                )}
+                Salvar Dados
+              </Button>
+            </div>
+
+            <div className="border-t pt-4 space-y-3">
+              <h4 className="text-sm font-semibold text-slate-600 uppercase tracking-wide flex items-center gap-2">
+                <KeyRound className="w-4 h-4" /> Acesso de Login (operator_admin)
+              </h4>
+
+              {credentialLoading ? (
+                <div className="flex justify-center py-6">
+                  <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+                </div>
+              ) : operatorUser ? (
+                <div className="space-y-3">
+                  <Badge className="bg-emerald-100 text-emerald-700 border-0">
+                    Acesso ativo — {operatorUser.status === 'active' ? 'Ativo' : 'Inativo'}
+                  </Badge>
+
+                  <div className="space-y-2">
+                    <Label>E-mail de login</Label>
+                    <div className="flex gap-2">
+                      <Input value={credEmail} onChange={(e) => setCredEmail(e.target.value)} />
+                      <Button variant="outline" onClick={handleUpdateCredentialEmail} disabled={credSaving}>
+                        <Mail className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Nova senha (deixe em branco para gerar automaticamente)</Label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Input
+                          type={showCredPassword ? "text" : "password"}
+                          value={credPassword}
+                          onChange={(e) => setCredPassword(e.target.value)}
+                          placeholder="Nova senha"
+                          className="pr-10"
+                        />
+                        <button
+                          type="button"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                          onClick={() => setShowCredPassword(!showCredPassword)}
+                        >
+                          {showCredPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      <Button variant="outline" onClick={handleResetPassword} disabled={credSaving}>
+                        <KeyRound className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {generatedPassword && (
+                    <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg p-3">
+                      <span className="text-sm font-mono text-amber-800">{generatedPassword}</span>
+                      <Button size="sm" variant="ghost" onClick={() => copyToClipboard(generatedPassword)}>
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
+
+                  <Button
+                    variant="destructive"
+                    className="w-full"
+                    onClick={() => setShowDeleteConfirm(true)}
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Remover Acesso / Excluir Login
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-slate-500">
+                    Este operador ainda não possui um login criado.
+                  </p>
+                  <div className="space-y-2">
+                    <Label>E-mail de login</Label>
+                    <Input
+                      type="email"
+                      value={credEmail}
+                      onChange={(e) => setCredEmail(e.target.value)}
+                      placeholder="email@operador.com"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Senha (deixe em branco para gerar automaticamente)</Label>
+                    <div className="relative">
+                      <Input
+                        type={showCredPassword ? "text" : "password"}
+                        value={credPassword}
+                        onChange={(e) => setCredPassword(e.target.value)}
+                        placeholder="Senha de acesso"
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                        onClick={() => setShowCredPassword(!showCredPassword)}
+                      >
+                        {showCredPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <Button onClick={handleCreateCredential} disabled={credSaving} className="btn-navy w-full">
+                    {credSaving ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <UserPlus className="w-4 h-4 mr-2" />
+                    )}
+                    Criar Credencial
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditOperator(false)}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============== Delete credential confirmation ============== */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover acesso deste operador?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O login de acesso (operator_admin) será excluído. O operador em si e seus
+              dados históricos (empresas, viagens, motoristas) não serão apagados — apenas
+              este login deixará de funcionar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteCredential} disabled={deleting}>
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirmar exclusão"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
