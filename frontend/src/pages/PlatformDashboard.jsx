@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   Building2, Users, Car, Truck, Plus, LogOut, LayoutDashboard,
-  Loader2, RefreshCw, ChevronRight, Globe, Shield, Activity,
+  Loader2, RefreshCw, ChevronRight, Shield, Activity,
   KeyRound, Trash2, Mail, Save, UserPlus, Copy, Eye, EyeOff, Settings
 } from "lucide-react";
 
@@ -65,9 +65,17 @@ export default function PlatformDashboard() {
   const [credSaving, setCredSaving] = useState(false);
   const [generatedPassword, setGeneratedPassword] = useState("");
 
-  // Delete confirmation
+  // Delete credential (login only) confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // ============== NEW: Delete ENTIRE operator confirmation ==============
+  // This is different from "showDeleteConfirm" above, which only removes the
+  // login (operator_admin user) but keeps the operator record itself.
+  // This new flow deletes the operator account completely.
+  const [showDeleteOperatorConfirm, setShowDeleteOperatorConfirm] = useState(false);
+  const [deletingOperator, setDeletingOperator] = useState(false);
+  const [cascadeDeleteOperator, setCascadeDeleteOperator] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -104,11 +112,11 @@ export default function PlatformDashboard() {
   // ============== Create new operator + login credential ==============
   const handleCreateOperator = async () => {
     if (!newOperatorName.trim()) {
-      toast.error("Nome do operador é obrigatório");
+      toast.error("Nome do operador Ã© obrigatÃ³rio");
       return;
     }
     if (!newOperatorEmail.trim()) {
-      toast.error("E-mail é obrigatório para criar o acesso de login");
+      toast.error("E-mail Ã© obrigatÃ³rio para criar o acesso de login");
       return;
     }
 
@@ -140,7 +148,7 @@ export default function PlatformDashboard() {
 
       if (userRes.data?.password) {
         toast.success(
-          `Operador criado! Senha gerada: ${userRes.data.password} (copie agora, não será mostrada de novo)`,
+          `Operador criado! Senha gerada: ${userRes.data.password} (copie agora, nÃ£o serÃ¡ mostrada de novo)`,
           { duration: 15000 }
         );
       } else {
@@ -170,6 +178,7 @@ export default function PlatformDashboard() {
     setCredEmail("");
     setCredPassword("");
     setGeneratedPassword("");
+    setCascadeDeleteOperator(false);
     setShowEditOperator(true);
 
     setCredentialLoading(true);
@@ -193,7 +202,7 @@ export default function PlatformDashboard() {
 
   const handleSaveOperator = async () => {
     if (!editName.trim()) {
-      toast.error("Nome é obrigatório");
+      toast.error("Nome Ã© obrigatÃ³rio");
       return;
     }
     setSavingOperator(true);
@@ -254,7 +263,7 @@ export default function PlatformDashboard() {
   const handleUpdateCredentialEmail = async () => {
     if (!operatorUser) return;
     if (!credEmail.trim()) {
-      toast.error("E-mail não pode ficar vazio");
+      toast.error("E-mail nÃ£o pode ficar vazio");
       return;
     }
     setCredSaving(true);
@@ -288,7 +297,7 @@ export default function PlatformDashboard() {
     }
   };
 
-  // ============== Delete existing user (login access) ==============
+  // ============== Delete existing user (login access ONLY) ==============
   const handleDeleteCredential = async () => {
     if (!operatorUser) return;
     setDeleting(true);
@@ -301,6 +310,30 @@ export default function PlatformDashboard() {
       toast.error(error.response?.data?.detail || "Erro ao remover acesso");
     } finally {
       setDeleting(false);
+    }
+  };
+
+  // ============== NEW: Delete the ENTIRE operator (account + login) ==============
+  // Unlike handleDeleteCredential (which only removes the login), this
+  // permanently deletes the operator record itself via DELETE /operators/{id}.
+  // If "cascadeDeleteOperator" is checked, all linked data (client companies,
+  // passengers, drivers, vehicles, trips) is deleted too. Otherwise that data
+  // is preserved in the database, just without an operator reference.
+  const handleDeleteOperator = async () => {
+    if (!selectedOperator) return;
+    setDeletingOperator(true);
+    try {
+      const res = await authAxios.delete(`/operators/${selectedOperator.id}`, {
+        params: { confirm: true, cascade: cascadeDeleteOperator }
+      });
+      toast.success(res.data?.message || "Operador excluÃ­do com sucesso!");
+      setShowDeleteOperatorConfirm(false);
+      setShowEditOperator(false);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Erro ao excluir operador");
+    } finally {
+      setDeletingOperator(false);
     }
   };
 
@@ -333,7 +366,7 @@ export default function PlatformDashboard() {
             </div>
             <div>
               <h1 className="font-bold text-lg font-['Manrope']">Platform Control</h1>
-              <p className="text-xs text-white/70">Gestão Multi-Operador</p>
+              <p className="text-xs text-white/70">GestÃ£o Multi-Operador</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -478,8 +511,6 @@ export default function PlatformDashboard() {
 
         {/* Quick Actions */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
-          {/* NEW: direct shortcut into the new ARC Management dashboard
-              (Companies / Passengers / Drivers / Vehicles / Trips / Users tabs) */}
           <Card
             className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
             onClick={() => navigate('/admin')}
@@ -490,8 +521,8 @@ export default function PlatformDashboard() {
                 <Settings className="w-6 h-6 text-indigo-600" />
               </div>
               <div>
-                <h3 className="font-semibold text-slate-800">Gestão ARC</h3>
-                <p className="text-sm text-slate-500">Empresas, passageiros e usuários</p>
+                <h3 className="font-semibold text-slate-800">GestÃ£o ARC</h3>
+                <p className="text-sm text-slate-500">Empresas, passageiros e usuÃ¡rios</p>
               </div>
             </CardContent>
           </Card>
@@ -512,9 +543,6 @@ export default function PlatformDashboard() {
             </CardContent>
           </Card>
 
-          {/* FIX: this used to navigate('/') which, for a platform_owner, just
-              redirects right back to /platform (a no-op loop). Now it goes
-              straight to the taxi request screen. */}
           <Card
             className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
             onClick={() => navigate('/solicitar')}
@@ -525,7 +553,7 @@ export default function PlatformDashboard() {
                 <Car className="w-6 h-6 text-emerald-600" />
               </div>
               <div>
-                <h3 className="font-semibold text-slate-800">Solicitar Táxi</h3>
+                <h3 className="font-semibold text-slate-800">Solicitar TÃ¡xi</h3>
                 <p className="text-sm text-slate-500">Portal de passageiros</p>
               </div>
             </CardContent>
@@ -558,7 +586,7 @@ export default function PlatformDashboard() {
               Novo Operador
             </DialogTitle>
             <DialogDescription>
-              Cadastre uma nova empresa de transporte na plataforma. Um login de acesso será criado automaticamente.
+              Cadastre uma nova empresa de transporte na plataforma. Um login de acesso serÃ¡ criado automaticamente.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -680,7 +708,7 @@ export default function PlatformDashboard() {
               ) : operatorUser ? (
                 <div className="space-y-3">
                   <Badge className="bg-emerald-100 text-emerald-700 border-0">
-                    Acesso ativo — {operatorUser.status === 'active' ? 'Ativo' : 'Inativo'}
+                    Acesso ativo â€” {operatorUser.status === 'active' ? 'Ativo' : 'Inativo'}
                   </Badge>
 
                   <div className="space-y-2">
@@ -739,7 +767,7 @@ export default function PlatformDashboard() {
               ) : (
                 <div className="space-y-3">
                   <p className="text-sm text-slate-500">
-                    Este operador ainda não possui um login criado.
+                    Este operador ainda nÃ£o possui um login criado.
                   </p>
                   <div className="space-y-2">
                     <Label>E-mail de login</Label>
@@ -780,6 +808,29 @@ export default function PlatformDashboard() {
                 </div>
               )}
             </div>
+
+            {/* ============== NEW: Delete entire operator section ============== */}
+            <div className="border-t pt-4 space-y-3">
+              <h4 className="text-sm font-semibold text-red-600 uppercase tracking-wide flex items-center gap-2">
+                <Trash2 className="w-4 h-4" /> Zona de Risco
+              </h4>
+              <p className="text-sm text-slate-500">
+                Isso exclui o operador (empresa de transporte) e todos os logins vinculados a ele
+                permanentemente â€” nÃ£o apenas o acesso, a conta inteira do operador.
+              </p>
+              <Button
+                variant="destructive"
+                className="w-full"
+                onClick={() => {
+                  setCascadeDeleteOperator(false);
+                  setShowDeleteOperatorConfirm(true);
+                }}
+                data-testid="delete-operator-btn"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Excluir Operador Permanentemente
+              </Button>
+            </div>
           </div>
 
           <DialogFooter>
@@ -790,21 +841,59 @@ export default function PlatformDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* ============== Delete credential confirmation ============== */}
+      {/* ============== Delete credential (login only) confirmation ============== */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remover acesso deste operador?</AlertDialogTitle>
             <AlertDialogDescription>
-              O login de acesso (operator_admin) será excluído. O operador em si e seus
-              dados históricos (empresas, viagens, motoristas) não serão apagados — apenas
-              este login deixará de funcionar.
+              O login de acesso (operator_admin) serÃ¡ excluÃ­do. O operador em si e seus
+              dados histÃ³ricos (empresas, viagens, motoristas) nÃ£o serÃ£o apagados â€” apenas
+              este login deixarÃ¡ de funcionar.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteCredential} disabled={deleting}>
-              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirmar exclusão"}
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirmar exclusÃ£o"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ============== NEW: Delete ENTIRE operator confirmation ============== */}
+      <AlertDialog open={showDeleteOperatorConfirm} onOpenChange={setShowDeleteOperatorConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir operador permanentemente?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta aÃ§Ã£o exclui o operador <strong>{selectedOperator?.name}</strong> e todos os
+              logins de acesso vinculados a ele (operator_admin e demais usuÃ¡rios com esse
+              operator_id). Esta aÃ§Ã£o nÃ£o pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex items-start gap-2 py-2 px-1">
+            <input
+              type="checkbox"
+              id="cascade-delete-operator"
+              checked={cascadeDeleteOperator}
+              onChange={(e) => setCascadeDeleteOperator(e.target.checked)}
+              className="mt-1"
+            />
+            <label htmlFor="cascade-delete-operator" className="text-sm text-slate-600">
+              TambÃ©m excluir todos os dados vinculados a este operador (empresas clientes,
+              passageiros, motoristas, veÃ­culos e histÃ³rico de viagens). Se deixar
+              desmarcado, esses dados permanecem no banco, sem operador associado.
+            </label>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteOperator}
+              disabled={deletingOperator}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deletingOperator ? <Loader2 className="w-4 h-4 animate-spin" /> : "Excluir Permanentemente"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

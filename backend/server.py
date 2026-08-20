@@ -636,6 +636,80 @@ async def list_operators(current_user: dict = Depends(get_current_user)):
         ).to_list(1)
     return operators
 
+@operators_router.delete("/{operator_id}")
+async def delete_operator(
+    operator_id: str,
+    confirm: bool = Query(False),
+    cascade: bool = Query(False),
+    current_user: dict = Depends(require_roles([UserRole.PLATFORM_OWNER]))
+):
+    """
+    Permanently delete an operator (company that provides the transport
+    service on the platform) and its login access.
+
+    - confirm=false (default): only checks and returns warnings about linked
+      data (client companies, passengers, drivers, vehicles, trips, users).
+      Does NOT delete anything yet.
+    - confirm=true: actually deletes the operator record and ALL users
+      (logins) linked to it (operator_admin, client_admin, etc that have
+      this operator_id).
+    - cascade=true (only applied when confirm=true): additionally deletes
+      all client companies, passengers, drivers, vehicles and trips that
+      belong to this operator. If cascade=false, that data is kept in the
+      database (orphaned, without an operator reference).
+    """
+    operator = await db.operators.find_one({"id": operator_id})
+    if not operator:
+        raise HTTPException(status_code=404, detail="Operador nÃ£o encontrado")
+
+    companies_count = await db.client_companies.count_documents({"operator_id": operator_id})
+    passengers_count = await db.passengers.count_documents({"operator_id": operator_id})
+    drivers_count = await db.drivers_v2.count_documents({"operator_id": operator_id})
+    vehicles_count = await db.vehicles.count_documents({"operator_id": operator_id})
+    trips_count = await db.trips.count_documents({"operator_id": operator_id})
+    users_count = await db.users.count_documents({"operator_id": operator_id})
+
+    warnings = []
+    if companies_count:
+        warnings.append(f"{companies_count} empresa(s) cliente vinculada(s)")
+    if passengers_count:
+        warnings.append(f"{passengers_count} passageiro(s) vinculado(s)")
+    if drivers_count:
+        warnings.append(f"{drivers_count} motorista(s) vinculado(s)")
+    if vehicles_count:
+        warnings.append(f"{vehicles_count} veÃ­culo(s) vinculado(s)")
+    if trips_count:
+        warnings.append(f"{trips_count} viagem(ns) no histÃ³rico")
+    if users_count:
+        warnings.append(f"{users_count} usuÃ¡rio(s)/login(s) vinculado(s)")
+
+    if not confirm:
+        return {
+            "success": False,
+            "requires_confirmation": True,
+            "warnings": warnings,
+            "message": "Confirme a exclusÃ£o do operador. Marque 'cascade' para apagar tambÃ©m todos os dados vinculados."
+        }
+
+    if cascade:
+        await db.client_companies.delete_many({"operator_id": operator_id})
+        await db.passengers.delete_many({"operator_id": operator_id})
+        await db.drivers_v2.delete_many({"operator_id": operator_id})
+        await db.vehicles.delete_many({"operator_id": operator_id})
+        await db.trips.delete_many({"operator_id": operator_id})
+
+    # Always remove every login (user) linked to this operator, regardless of role
+    await db.users.delete_many({"operator_id": operator_id})
+
+    await db.operators.delete_one({"id": operator_id})
+
+    return {
+        "success": True,
+        "message": "Operador excluÃ­do com sucesso" + (
+            " (incluindo todos os dados vinculados)." if cascade else
+            ". Dados vinculados (empresas, viagens, etc) foram preservados."
+        )
+    }
 @operators_router.post("")
 async def create_operator(
     data: OperatorCreate,
