@@ -106,7 +106,7 @@ export default function PassengerPortal() {
   // request normally (e.g. for a newly hired employee not yet registered).
   const searchMainPassenger = useCallback(async () => {
     if (!mainMatricula.trim()) {
-      toast.error("Digite uma matrÃ­cula");
+      toast.error("Digite uma matrícula");
       return;
     }
     
@@ -121,7 +121,7 @@ export default function PassengerPortal() {
       if (useDefaultAddress && destinationType === "cadastrado") {
         setDestinationAddress(response.data.default_address);
       }
-      toast.success("FuncionÃ¡rio encontrado!");
+      toast.success("Funcionário encontrado!");
     } catch (error) {
       // Not found: don't clear the possibility of continuing manually.
       setMainFound(false);
@@ -129,7 +129,7 @@ export default function PassengerPortal() {
       setMainName("");
       setMainAddress("");
       setMainPhone("");
-      toast.error("FuncionÃ¡rio nÃ£o encontrado. Preencha os dados manualmente para continuar.");
+      toast.error("Funcionário não encontrado. Preencha os dados manualmente para continuar.");
     } finally {
       setIsSearching(false);
     }
@@ -139,7 +139,7 @@ export default function PassengerPortal() {
   const searchAdditionalPassenger = async (index) => {
     const passenger = additionalPassengers[index];
     if (!passenger.matricula.trim()) {
-      toast.error("Digite uma matrÃ­cula");
+      toast.error("Digite uma matrícula");
       return;
     }
     
@@ -167,14 +167,14 @@ export default function PassengerPortal() {
         searched: true
       };
       setAdditionalPassengers(updated);
-      toast.error("FuncionÃ¡rio nÃ£o encontrado. Preencha os dados manualmente.");
+      toast.error("Funcionário não encontrado. Preencha os dados manualmente.");
     }
   };
 
   // Add passenger
   const addPassenger = () => {
     if (additionalPassengers.length >= 5) {
-      toast.error("MÃ¡ximo de 6 passageiros por veÃ­culo");
+      toast.error("Máximo de 6 passageiros por veículo");
       return;
     }
     setAdditionalPassengers([...additionalPassengers, { matricula: "", full_name: "", address: "", phone: "", found: false, searched: false }]);
@@ -247,12 +247,12 @@ export default function PassengerPortal() {
     }
     
     if (originType === "outro" && !originAddress.trim()) {
-      toast.error("Por favor, informe o endereÃ§o de origem");
+      toast.error("Por favor, informe o endereço de origem");
       return;
     }
     
     if (!destinationAddress.trim()) {
-      toast.error("Por favor, informe o endereÃ§o de destino");
+      toast.error("Por favor, informe o endereço de destino");
       return;
     }
     
@@ -262,13 +262,13 @@ export default function PassengerPortal() {
         return;
       }
       if (!scheduledTime) {
-        toast.error("Por favor, selecione o horÃ¡rio do agendamento");
+        toast.error("Por favor, selecione o horário do agendamento");
         return;
       }
     }
     
     // Additional passengers just need a name filled in (either from a
-    // successful search or typed manually) â€” they no longer need to have
+    // successful search or typed manually) — they no longer need to have
     // been matched in the database.
     const incompletePassengers = additionalPassengers.filter(p => !p.full_name.trim());
     if (incompletePassengers.length > 0) {
@@ -304,7 +304,7 @@ export default function PassengerPortal() {
       const response = await axios.post(`${API}/requests`, requestData);
       const newRequestId = response.data.id;
 
-      toast.success(isScheduled ? "Agendamento realizado com sucesso!" : "SolicitaÃ§Ã£o enviada com sucesso!");
+      toast.success(isScheduled ? "Agendamento realizado com sucesso!" : "Solicitação enviada com sucesso!");
 
       // Deferring the navigation to the next tick (setTimeout 0) lets the
       // toast finish mounting first and avoids a DOM race condition.
@@ -312,7 +312,7 @@ export default function PassengerPortal() {
         navigate(`/status/${newRequestId}`);
       }, 0);
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Erro ao enviar solicitaÃ§Ã£o");
+      toast.error(error.response?.data?.detail || "Erro ao enviar solicitação");
       setIsSubmitting(false);
     }
   };
@@ -321,7 +321,7 @@ export default function PassengerPortal() {
   const isClientAdmin = user?.role === 'client_admin';
 
   // Submit is now enabled once a search attempt was made AND a name is filled
-  // in (found in DB OR typed manually) â€” no longer strictly requires a DB match.
+  // in (found in DB OR typed manually) — no longer strictly requires a DB match.
   const canSubmit = mainSearched && mainName.trim().length > 0 && !isSubmitting &&
     !(isScheduled && (!scheduledDate || !scheduledTime));
 
@@ -336,7 +336,7 @@ export default function PassengerPortal() {
             </div>
             <div>
               <h1 className="font-bold text-lg tracking-tight font-['Manrope']">ARC Transporte</h1>
-              <p className="text-xs text-white/70">Sistema de TÃ¡xi Corporativo</p>
+              <p className="text-xs text-white/70">Sistema de Táxi Corporativo</p>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -384,10 +384,10 @@ export default function PassengerPortal() {
         <Card className="border-0 shadow-[0_4px_20px_rgba(30,58,95,0.1)] animate-fade-in-up">
           <CardHeader className="pb-4">
             <CardTitle className="text-2xl font-['Manrope'] text-[#1e3a5f]">
-              Solicitar TÃ¡xi
+              Solicitar Táxi
             </CardTitle>
             <CardDescription>
-              Preencha os dados para solicitar um tÃ¡xi corporativo
+              Preencha os dados para solicitar um táxi corporativo
             </CardDescription>
           </CardHeader>
           
@@ -398,7 +398,7 @@ export default function PassengerPortal() {
                 <div className="flex items-center gap-2 mb-3">
                   <User className="w-5 h-5 text-[#1e3a5f]" />
                   <Label className="font-semibold text-[#1e3a5f]">Nome do Solicitante</Label>
-                  <Badge variant="destructive" className="text-xs">ObrigatÃ³rio</Badge>
+                  <Badge variant="destructive" className="text-xs">Obrigatório</Badge>
                 </div>
                 <Input
                   placeholder="Digite seu nome completo"
@@ -418,11 +418,11 @@ export default function PassengerPortal() {
                 
                 <div className="space-y-3">
                   <div>
-                    <Label className="text-sm text-slate-600">MatrÃ­cula</Label>
+                    <Label className="text-sm text-slate-600">Matrícula</Label>
                     <div className="flex gap-2 mt-1">
                       <Input
                         data-testid="main-matricula-input"
-                        placeholder="Ex: 101 (opcional, se nÃ£o souber deixe em branco e preencha manualmente abaixo)"
+                        placeholder="Ex: 101 (opcional, se não souber deixe em branco e preencha manualmente abaixo)"
                         value={mainMatricula}
                         onChange={(e) => {
                           setMainMatricula(e.target.value);
@@ -450,7 +450,7 @@ export default function PassengerPortal() {
                         className="text-xs text-[#1e3a5f] underline mt-1"
                         onClick={() => { setMainSearched(true); setMainFound(false); }}
                       >
-                        NÃ£o sei a matrÃ­cula / preencher manualmente
+                        Não sei a matrícula / preencher manualmente
                       </button>
                     )}
                   </div>
@@ -461,7 +461,7 @@ export default function PassengerPortal() {
                         <Badge className="bg-emerald-100 text-emerald-700 border-0 mb-2">Encontrado</Badge>
                       ) : (
                         <Badge className="bg-amber-100 text-amber-700 border-0 mb-2 flex items-center gap-1 w-fit">
-                          <AlertTriangle className="w-3 h-3" /> NÃ£o encontrado â€” preencha manualmente
+                          <AlertTriangle className="w-3 h-3" /> Não encontrado — preencha manualmente
                         </Badge>
                       )}
                       <div className="mt-2 space-y-2">
@@ -476,11 +476,11 @@ export default function PassengerPortal() {
                           />
                         </div>
                         <div>
-                          <Label className="text-xs text-slate-600">EndereÃ§o</Label>
+                          <Label className="text-xs text-slate-600">Endereço</Label>
                           <Input
                             value={mainAddress}
                             onChange={(e) => setMainAddress(e.target.value)}
-                            placeholder="EndereÃ§o do passageiro"
+                            placeholder="Endereço do passageiro"
                             className="h-10 mt-1"
                           />
                         </div>
@@ -541,7 +541,7 @@ export default function PassengerPortal() {
                         </div>
                         <div className="flex gap-2 mb-2">
                           <Input
-                            placeholder="MatrÃ­cula (opcional)"
+                            placeholder="Matrícula (opcional)"
                             value={passenger.matricula}
                             onChange={(e) => updatePassengerMatricula(index, e.target.value)}
                             className="h-10"
@@ -556,7 +556,7 @@ export default function PassengerPortal() {
                             className="text-xs text-[#1e3a5f] underline mb-2"
                             onClick={() => updatePassengerField(index, "searched", true)}
                           >
-                            NÃ£o sei a matrÃ­cula / preencher manualmente
+                            Não sei a matrícula / preencher manualmente
                           </button>
                         )}
                         {passenger.searched && (
@@ -565,7 +565,7 @@ export default function PassengerPortal() {
                               <Badge className="bg-emerald-100 text-emerald-700 border-0 mb-2">Encontrado</Badge>
                             ) : (
                               <Badge className="bg-amber-100 text-amber-700 border-0 mb-2 flex items-center gap-1 w-fit">
-                                <AlertTriangle className="w-3 h-3" /> NÃ£o encontrado â€” preencha manualmente
+                                <AlertTriangle className="w-3 h-3" /> Não encontrado — preencha manualmente
                               </Badge>
                             )}
                             <div className="space-y-2">
@@ -579,11 +579,11 @@ export default function PassengerPortal() {
                                 />
                               </div>
                               <div>
-                                <Label className="text-xs text-slate-600">EndereÃ§o</Label>
+                                <Label className="text-xs text-slate-600">Endereço</Label>
                                 <Input
                                   value={passenger.address}
                                   onChange={(e) => updatePassengerField(index, "address", e.target.value)}
-                                  placeholder="EndereÃ§o"
+                                  placeholder="Endereço"
                                   className="h-9 mt-1"
                                 />
                               </div>
@@ -647,7 +647,7 @@ export default function PassengerPortal() {
 
                 {originType === "outro" && (
                   <Input
-                    placeholder="Digite o endereÃ§o de origem"
+                    placeholder="Digite o endereço de origem"
                     value={originAddress}
                     onChange={(e) => setOriginAddress(e.target.value)}
                     className="h-12 text-base animate-slide-in"
@@ -671,7 +671,7 @@ export default function PassengerPortal() {
                     className={destinationType === "cadastrado" ? "flex-1 btn-navy" : "flex-1"}
                     data-testid="dest-cadastrado-btn"
                   >
-                    EndereÃ§o Cadastrado
+                    Endereço Cadastrado
                   </Button>
                   <Button
                     type="button"
@@ -688,14 +688,14 @@ export default function PassengerPortal() {
                   <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100 animate-slide-in">
                     <p className="text-sm text-emerald-700 flex items-center gap-2">
                       <MapPin className="w-4 h-4" />
-                      {mainAddress || "EndereÃ§o nÃ£o informado"}
+                      {mainAddress || "Endereço não informado"}
                     </p>
                   </div>
                 )}
 
                 {destinationType === "outro" && (
                   <Input
-                    placeholder="Digite o endereÃ§o de destino"
+                    placeholder="Digite o endereço de destino"
                     value={destinationAddress}
                     onChange={(e) => setDestinationAddress(e.target.value)}
                     className="h-12 text-base animate-slide-in"
@@ -761,7 +761,7 @@ export default function PassengerPortal() {
                         </Popover>
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-sm text-slate-600">HorÃ¡rio</Label>
+                        <Label className="text-sm text-slate-600">Horário</Label>
                         <Input
                           type="time"
                           value={scheduledTime}
@@ -774,7 +774,7 @@ export default function PassengerPortal() {
                       <div className="p-3 bg-[#1e3a5f]/5 rounded-lg">
                         <p className="text-sm text-[#1e3a5f] flex items-center gap-2">
                           <CalendarIcon className="w-4 h-4" />
-                          Agendado para: <strong>{format(scheduledDate, "dd/MM/yyyy")} Ã s {scheduledTime}</strong>
+                          Agendado para: <strong>{format(scheduledDate, "dd/MM/yyyy")} às {scheduledTime}</strong>
                         </p>
                       </div>
                     )}
@@ -792,7 +792,7 @@ export default function PassengerPortal() {
                 {isSubmitting ? (
                   <><Loader2 className="w-5 h-5 mr-2 animate-spin" />{isScheduled ? "Agendando..." : "Enviando..."}</>
                 ) : (
-                  <>{isScheduled ? "Agendar TÃ¡xi" : "Solicitar TÃ¡xi"}<ArrowRight className="w-5 h-5 ml-2" /></>
+                  <>{isScheduled ? "Agendar Táxi" : "Solicitar Táxi"}<ArrowRight className="w-5 h-5 ml-2" /></>
                 )}
               </Button>
             </form>
@@ -800,7 +800,7 @@ export default function PassengerPortal() {
         </Card>
 
         <footer className="mt-8 text-center text-sm text-slate-500">
-          <p>ARC Transporte - Sistema de TÃ¡xi Corporativo</p>
+          <p>ARC Transporte - Sistema de Táxi Corporativo</p>
         </footer>
       </main>
     </div>

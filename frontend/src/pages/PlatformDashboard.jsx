@@ -112,11 +112,11 @@ export default function PlatformDashboard() {
   // ============== Create new operator + login credential ==============
   const handleCreateOperator = async () => {
     if (!newOperatorName.trim()) {
-      toast.error("Nome do operador Ã© obrigatÃ³rio");
+      toast.error("Nome do operador é obrigatório");
       return;
     }
     if (!newOperatorEmail.trim()) {
-      toast.error("E-mail Ã© obrigatÃ³rio para criar o acesso de login");
+      toast.error("E-mail é obrigatório para criar o acesso de login");
       return;
     }
 
@@ -148,7 +148,7 @@ export default function PlatformDashboard() {
 
       if (userRes.data?.password) {
         toast.success(
-          `Operador criado! Senha gerada: ${userRes.data.password} (copie agora, nÃ£o serÃ¡ mostrada de novo)`,
+          `Operador criado! Senha gerada: ${userRes.data.password} (copie agora, não será mostrada de novo)`,
           { duration: 15000 }
         );
       } else {
@@ -202,7 +202,7 @@ export default function PlatformDashboard() {
 
   const handleSaveOperator = async () => {
     if (!editName.trim()) {
-      toast.error("Nome Ã© obrigatÃ³rio");
+      toast.error("Nome é obrigatório");
       return;
     }
     setSavingOperator(true);
@@ -263,7 +263,7 @@ export default function PlatformDashboard() {
   const handleUpdateCredentialEmail = async () => {
     if (!operatorUser) return;
     if (!credEmail.trim()) {
-      toast.error("E-mail nÃ£o pode ficar vazio");
+      toast.error("E-mail não pode ficar vazio");
       return;
     }
     setCredSaving(true);
@@ -326,7 +326,7 @@ export default function PlatformDashboard() {
       const res = await authAxios.delete(`/operators/${selectedOperator.id}`, {
         params: { confirm: true, cascade: cascadeDeleteOperator }
       });
-      toast.success(res.data?.message || "Operador excluÃ­do com sucesso!");
+      toast.success(res.data?.message || "Operador excluído com sucesso!");
       setShowDeleteOperatorConfirm(false);
       setShowEditOperator(false);
       fetchData();
@@ -366,7 +366,7 @@ export default function PlatformDashboard() {
             </div>
             <div>
               <h1 className="font-bold text-lg font-['Manrope']">Platform Control</h1>
-              <p className="text-xs text-white/70">GestÃ£o Multi-Operador</p>
+              <p className="text-xs text-white/70">Gestão Multi-Operador</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -521,8 +521,8 @@ export default function PlatformDashboard() {
                 <Settings className="w-6 h-6 text-indigo-600" />
               </div>
               <div>
-                <h3 className="font-semibold text-slate-800">GestÃ£o ARC</h3>
-                <p className="text-sm text-slate-500">Empresas, passageiros e usuÃ¡rios</p>
+                <h3 className="font-semibold text-slate-800">Gestão ARC</h3>
+                <p className="text-sm text-slate-500">Empresas, passageiros e usuários</p>
               </div>
             </CardContent>
           </Card>
@@ -553,7 +553,7 @@ export default function PlatformDashboard() {
                 <Car className="w-6 h-6 text-emerald-600" />
               </div>
               <div>
-                <h3 className="font-semibold text-slate-800">Solicitar TÃ¡xi</h3>
+                <h3 className="font-semibold text-slate-800">Solicitar Táxi</h3>
                 <p className="text-sm text-slate-500">Portal de passageiros</p>
               </div>
             </CardContent>
@@ -586,7 +586,7 @@ export default function PlatformDashboard() {
               Novo Operador
             </DialogTitle>
             <DialogDescription>
-              Cadastre uma nova empresa de transporte na plataforma. Um login de acesso serÃ¡ criado automaticamente.
+              Cadastre uma nova empresa de transporte na plataforma. Um login de acesso será criado automaticamente.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -708,7 +708,7 @@ export default function PlatformDashboard() {
               ) : operatorUser ? (
                 <div className="space-y-3">
                   <Badge className="bg-emerald-100 text-emerald-700 border-0">
-                    Acesso ativo â€” {operatorUser.status === 'active' ? 'Ativo' : 'Inativo'}
+                    Acesso ativo — {operatorUser.status === 'active' ? 'Ativo' : 'Inativo'}
                   </Badge>
 
                   <div className="space-y-2">
@@ -767,7 +767,7 @@ export default function PlatformDashboard() {
               ) : (
                 <div className="space-y-3">
                   <p className="text-sm text-slate-500">
-                    Este operador ainda nÃ£o possui um login criado.
+                    Este operador ainda não possui um login criado.
                   </p>
                   <div className="space-y-2">
                     <Label>E-mail de login</Label>
@@ -816,7 +816,7 @@ export default function PlatformDashboard() {
               </h4>
               <p className="text-sm text-slate-500">
                 Isso exclui o operador (empresa de transporte) e todos os logins vinculados a ele
-                permanentemente â€” nÃ£o apenas o acesso, a conta inteira do operador.
+                permanentemente — não apenas o acesso, a conta inteira do operador.
               </p>
               <Button
                 variant="destructive"
@@ -847,15 +847,15 @@ export default function PlatformDashboard() {
           <AlertDialogHeader>
             <AlertDialogTitle>Remover acesso deste operador?</AlertDialogTitle>
             <AlertDialogDescription>
-              O login de acesso (operator_admin) serÃ¡ excluÃ­do. O operador em si e seus
-              dados histÃ³ricos (empresas, viagens, motoristas) nÃ£o serÃ£o apagados â€” apenas
-              este login deixarÃ¡ de funcionar.
+              O login de acesso (operator_admin) será excluído. O operador em si e seus
+              dados históricos (empresas, viagens, motoristas) não serão apagados — apenas
+              este login deixará de funcionar.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteCredential} disabled={deleting}>
-              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirmar exclusÃ£o"}
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirmar exclusão"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -867,9 +867,9 @@ export default function PlatformDashboard() {
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir operador permanentemente?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta aÃ§Ã£o exclui o operador <strong>{selectedOperator?.name}</strong> e todos os
-              logins de acesso vinculados a ele (operator_admin e demais usuÃ¡rios com esse
-              operator_id). Esta aÃ§Ã£o nÃ£o pode ser desfeita.
+              Esta ação exclui o operador <strong>{selectedOperator?.name}</strong> e todos os
+              logins de acesso vinculados a ele (operator_admin e demais usuários com esse
+              operator_id). Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex items-start gap-2 py-2 px-1">
@@ -881,8 +881,8 @@ export default function PlatformDashboard() {
               className="mt-1"
             />
             <label htmlFor="cascade-delete-operator" className="text-sm text-slate-600">
-              TambÃ©m excluir todos os dados vinculados a este operador (empresas clientes,
-              passageiros, motoristas, veÃ­culos e histÃ³rico de viagens). Se deixar
+              Também excluir todos os dados vinculados a este operador (empresas clientes,
+              passageiros, motoristas, veículos e histórico de viagens). Se deixar
               desmarcado, esses dados permanecem no banco, sem operador associado.
             </label>
           </div>
